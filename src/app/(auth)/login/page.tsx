@@ -1,24 +1,30 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { signIn } from '@/lib/actions/auth'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Clock, AlertCircle } from 'lucide-react'
+import { useState } from 'react';
+import { signIn } from '@/lib/actions/auth';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Clock, AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   async function handleSubmit(formData: FormData) {
-    setLoading(true)
-    setError(null)
-    const result = await signIn(formData)
+    setLoading(true);
+    setError(null);
+    const result = await signIn(formData);
     if (result?.error) {
-      setError(result.error)
-      setLoading(false)
+      setError(result.error);
+      setLoading(false);
     }
   }
 
@@ -77,9 +83,11 @@ export default function LoginPage() {
           <p>Admin: admin@coastaleats.com</p>
           <p>Manager: sarah.manager@coastaleats.com</p>
           <p>Staff: james.staff@coastaleats.com</p>
-          <p className="text-muted-foreground/70">Password for all: shiftsync123</p>
+          <p className="text-muted-foreground/70">
+            Password for all: shiftsync123
+          </p>
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

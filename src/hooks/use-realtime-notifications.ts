@@ -1,17 +1,17 @@
-'use client'
+'use client';
 
-import { useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { useNotificationStore } from '@/stores/notification-store'
-import { toast } from 'sonner'
+import { useEffect } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import { useNotificationStore } from '@/stores/notification-store';
+import { toast } from 'sonner';
 
 export function useRealtimeNotifications(userId: string | undefined) {
-  const { setUnreadCount, increment } = useNotificationStore()
+  const { setUnreadCount, increment } = useNotificationStore();
 
   useEffect(() => {
-    if (!userId) return
+    if (!userId) return;
 
-    const supabase = createClient()
+    const supabase = createClient();
 
     // Fetch initial unread count
     async function fetchUnreadCount() {
@@ -19,12 +19,12 @@ export function useRealtimeNotifications(userId: string | undefined) {
         .from('notifications')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', userId!)
-        .eq('is_read', false)
+        .eq('is_read', false);
 
-      setUnreadCount(count || 0)
+      setUnreadCount(count || 0);
     }
 
-    fetchUnreadCount()
+    fetchUnreadCount();
 
     // Subscribe to new notifications
     const channel = supabase
@@ -38,17 +38,20 @@ export function useRealtimeNotifications(userId: string | undefined) {
           filter: `user_id=eq.${userId}`,
         },
         (payload) => {
-          const notification = payload.new as { title: string; message: string }
-          increment()
+          const notification = payload.new as {
+            title: string;
+            message: string;
+          };
+          increment();
           toast(notification.title, {
             description: notification.message,
-          })
-        }
+          });
+        },
       )
-      .subscribe()
+      .subscribe();
 
     return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [userId, setUnreadCount, increment])
+      supabase.removeChannel(channel);
+    };
+  }, [userId, setUnreadCount, increment]);
 }

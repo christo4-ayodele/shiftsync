@@ -1,78 +1,97 @@
-'use client'
+'use client';
 
-import { useState, useEffect } from 'react'
-import { useCurrentUser } from '@/hooks/use-current-user'
-import { createClient } from '@/lib/supabase/client'
-import { claimDroppedShift } from '@/lib/actions/swap-requests'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Skeleton } from '@/components/ui/skeleton'
-import { HandMetal, Clock, MapPin, Calendar, AlertTriangle } from 'lucide-react'
-import { format, parseISO, differenceInHours } from 'date-fns'
-import { formatTimeInTimezone, getShiftDurationHours } from '@/lib/utils/timezone'
-import { SKILL_COLORS } from '@/lib/utils/constants'
-import { toast } from 'sonner'
+import { useState, useEffect } from 'react';
+import { useCurrentUser } from '@/hooks/use-current-user';
+import { createClient } from '@/lib/supabase/client';
+import { claimDroppedShift } from '@/lib/actions/swap-requests';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  HandMetal,
+  Clock,
+  MapPin,
+  Calendar,
+  AlertTriangle,
+} from 'lucide-react';
+import { format, parseISO, differenceInHours } from 'date-fns';
+import {
+  formatTimeInTimezone,
+  getShiftDurationHours,
+} from '@/lib/utils/timezone';
+import { SKILL_COLORS } from '@/lib/utils/constants';
+import { toast } from 'sonner';
 
 export default function OpenShiftsPage() {
-  const { user } = useCurrentUser()
-  const supabase = createClient()
-  const [openShifts, setOpenShifts] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [claiming, setClaiming] = useState<string | null>(null)
+  const { user } = useCurrentUser();
+  const supabase = createClient();
+  const [openShifts, setOpenShifts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [claiming, setClaiming] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
       // Fetch swap requests of type 'drop' in pending_manager status (open for claims)
       const { data } = await supabase
         .from('swap_requests')
-        .select(`
+        .select(
+          `
           *,
           requesting_assignment:shift_assignments!requesting_assignment_id(
             *,
             shift:shifts(*, location:locations(*), required_skill:skills(*)),
-            profile:profiles(*)
+            profile:profiles!shift_assignments_staff_id_fkey(*)
           )
-        `)
+        `,
+        )
         .eq('type', 'drop')
         .eq('status', 'pending_manager')
-        .order('created_at', { ascending: false })
+        .order('created_at', { ascending: false });
 
       // Filter to only those where expires_at is in the future
-      const now = new Date()
-      const open = (data || []).filter(r => {
-        if (!r.expires_at) return true
-        return parseISO(r.expires_at) > now
-      })
+      const now = new Date();
+      const open = (data || []).filter((r) => {
+        if (!r.expires_at) return true;
+        return parseISO(r.expires_at) > now;
+      });
 
-      setOpenShifts(open)
-      setLoading(false)
+      setOpenShifts(open);
+      setLoading(false);
     }
-    load()
-  }, [])
+    load();
+  }, []);
 
   async function handleClaim(requestId: string) {
-    if (!user) return
-    setClaiming(requestId)
-    const result = await claimDroppedShift(requestId)
-    setClaiming(null)
+    if (!user) return;
+    setClaiming(requestId);
+    const result = await claimDroppedShift(requestId);
+    setClaiming(null);
     if (!result?.success) {
-      toast.error(result?.message || 'Failed to claim shift')
-      return
+      toast.error(result?.message || 'Failed to claim shift');
+      return;
     }
-    toast.success('Shift claimed! Pending manager approval.')
-    setOpenShifts(o => o.filter(s => s.id !== requestId))
+    toast.success('Shift claimed! Pending manager approval.');
+    setOpenShifts((o) => o.filter((s) => s.id !== requestId));
   }
 
   if (loading) {
-    return <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20" />)}</div>
+    return (
+      <div className="space-y-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-20" />
+        ))}
+      </div>
+    );
   }
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold">Open Shifts</h1>
-        <p className="text-muted-foreground">Shifts available to pick up from dropped requests</p>
+        <p className="text-muted-foreground">
+          Shifts available to pick up from dropped requests
+        </p>
       </div>
 
       {openShifts.length === 0 ? (
@@ -83,15 +102,20 @@ export default function OpenShiftsPage() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {openShifts.map(req => {
-            const shift = req.requesting_assignment?.shift
-            const location = shift?.location
-            const tz = location?.timezone || 'America/New_York'
-            const skill = shift?.required_skill?.name || 'General'
-            const skillColor = SKILL_COLORS[skill.toLowerCase()] || ''
-            const duration = shift ? getShiftDurationHours(shift.start_time, shift.end_time) : 0
-            const hoursLeft = req.expires_at ? differenceInHours(parseISO(req.expires_at), new Date()) : null
-            const isOwnShift = req.requesting_assignment?.profile?.id === user?.id
+          {openShifts.map((req) => {
+            const shift = req.requesting_assignment?.shift;
+            const location = shift?.location;
+            const tz = location?.timezone || 'America/New_York';
+            const skill = shift?.required_skill?.name || 'General';
+            const skillColor = SKILL_COLORS[skill.toLowerCase()] || '';
+            const duration = shift
+              ? getShiftDurationHours(shift.start_time, shift.end_time)
+              : 0;
+            const hoursLeft = req.expires_at
+              ? differenceInHours(parseISO(req.expires_at), new Date())
+              : null;
+            const isOwnShift =
+              req.requesting_assignment?.profile?.id === user?.id;
 
             return (
               <Card key={req.id}>
@@ -100,14 +124,21 @@ export default function OpenShiftsPage() {
                     <div className="space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <Calendar className="h-4 w-4" />
-                        <span className="font-semibold">{format(parseISO(shift.start_time), 'EEEE, MMM d')}</span>
-                        <Badge className={`text-xs ${skillColor}`}>{skill}</Badge>
-                        <Badge variant="secondary" className="text-xs">{duration}h</Badge>
+                        <span className="font-semibold">
+                          {format(parseISO(shift.start_time), 'EEEE, MMM d')}
+                        </span>
+                        <Badge className={`text-xs ${skillColor}`}>
+                          {skill}
+                        </Badge>
+                        <Badge variant="secondary" className="text-xs">
+                          {duration}h
+                        </Badge>
                       </div>
                       <div className="flex items-center gap-3 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <Clock className="h-3.5 w-3.5" />
-                          {formatTimeInTimezone(shift.start_time, tz)} - {formatTimeInTimezone(shift.end_time, tz)}
+                          {formatTimeInTimezone(shift.start_time, tz)} -{' '}
+                          {formatTimeInTimezone(shift.end_time, tz)}
                         </span>
                         <span className="flex items-center gap-1">
                           <MapPin className="h-3.5 w-3.5" />
@@ -115,12 +146,16 @@ export default function OpenShiftsPage() {
                         </span>
                       </div>
                       {req.reason && (
-                        <p className="text-xs text-muted-foreground italic">Reason: {req.reason}</p>
+                        <p className="text-xs text-muted-foreground italic">
+                          Reason: {req.reason}
+                        </p>
                       )}
                       {hoursLeft !== null && (
                         <div className="flex items-center gap-1 text-xs text-orange-600">
                           <AlertTriangle className="h-3 w-3" />
-                          {hoursLeft > 0 ? `${hoursLeft}h left to claim` : 'Expiring soon'}
+                          {hoursLeft > 0
+                            ? `${hoursLeft}h left to claim`
+                            : 'Expiring soon'}
                         </div>
                       )}
                     </div>
@@ -134,10 +169,10 @@ export default function OpenShiftsPage() {
                   </div>
                 </CardContent>
               </Card>
-            )
+            );
           })}
         </div>
       )}
     </div>
-  )
+  );
 }

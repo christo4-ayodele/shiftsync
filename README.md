@@ -4,17 +4,17 @@ A full-stack scheduling application built for **Coastal Eats**, a four-location 
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Framework | Next.js 16 (App Router, React 19, TypeScript 5) |
-| Database / Auth | Supabase (Postgres, Auth, Realtime, Row-Level Security) |
-| UI | Tailwind CSS v4 + shadcn/ui (25 components, New York theme) |
-| Charts | Recharts |
-| Calendar | FullCalendar 6 |
-| Tables | TanStack React Table |
-| State | Zustand |
-| Forms | React Hook Form + Zod |
-| Date Utils | date-fns + date-fns-tz |
+| Layer           | Technology                                                  |
+| --------------- | ----------------------------------------------------------- |
+| Framework       | Next.js 16 (App Router, React 19, TypeScript 5)             |
+| Database / Auth | Supabase (Postgres, Auth, Realtime, Row-Level Security)     |
+| UI              | Tailwind CSS v4 + shadcn/ui (25 components, New York theme) |
+| Charts          | Recharts                                                    |
+| Calendar        | FullCalendar 6                                              |
+| Tables          | TanStack React Table                                        |
+| State           | Zustand                                                     |
+| Forms           | React Hook Form + Zod                                       |
+| Date Utils      | date-fns + date-fns-tz                                      |
 
 ## Features
 
@@ -106,13 +106,13 @@ Visit [http://localhost:3000](http://localhost:3000).
 
 ## Demo Credentials
 
-| Role | Email | Password |
-|------|-------|----------|
-| Admin | admin@coastaleats.com | password123 |
+| Role    | Email                        | Password    |
+| ------- | ---------------------------- | ----------- |
+| Admin   | admin@coastaleats.com        | password123 |
 | Manager | mgr.downtown@coastaleats.com | password123 |
-| Manager | mgr.harbor@coastaleats.com | password123 |
-| Staff | staff1@coastaleats.com | password123 |
-| Staff | staff2–10@coastaleats.com | password123 |
+| Manager | mgr.harbor@coastaleats.com   | password123 |
+| Staff   | staff1@coastaleats.com       | password123 |
+| Staff   | staff2–10@coastaleats.com    | password123 |
 
 ## Database Schema
 

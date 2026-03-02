@@ -1,9 +1,12 @@
-'use server'
+'use server';
 
-import { createClient } from '@/lib/supabase/server'
-import { revalidatePath } from 'next/cache'
-import type { ConstraintViolation, CoverageCandidate } from '@/lib/types/database'
-import type { Json } from '@/lib/supabase/database.types'
+import { createClient } from '@/lib/supabase/server';
+import { revalidatePath } from 'next/cache';
+import type {
+  ConstraintViolation,
+  CoverageCandidate,
+} from '@/lib/types/database';
+import type { Json } from '@/lib/supabase/database.types';
 import {
   MINIMUM_GAP_HOURS,
   OVERTIME_WARNING_HOURS,
@@ -12,89 +15,108 @@ import {
   DAILY_WARNING_HOURS,
   CONSECUTIVE_DAY_WARNING,
   CONSECUTIVE_DAY_BLOCK,
-} from '@/lib/utils/constants'
+} from '@/lib/utils/constants';
 import {
   doShiftsOverlap,
   getShiftDurationHours,
   getGapBetweenShifts,
-} from '@/lib/utils/timezone'
-import { parseISO, startOfWeek, endOfWeek, format, eachDayOfInterval, isSameDay } from 'date-fns'
+} from '@/lib/utils/timezone';
+import {
+  parseISO,
+  startOfWeek,
+  endOfWeek,
+  format,
+  eachDayOfInterval,
+  isSameDay,
+} from 'date-fns';
 
 export async function getShifts(scheduleId: string) {
-  const supabase = await createClient()
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from('shifts')
-    .select(`
+    .select(
+      `
       *,
       required_skill:skills(*),
       location:locations(*),
-      shift_assignments(*, profile:profiles(*))
-    `)
+      shift_assignments(*, profile:profiles!shift_assignments_staff_id_fkey(*))
+    `,
+    )
     .eq('schedule_id', scheduleId)
-    .order('start_time')
+    .order('start_time');
 
-  if (error) throw error
-  return data
+  if (error) throw error;
+  return data;
 }
 
-export async function getShiftsByLocation(locationId: string, startDate: string, endDate: string) {
-  const supabase = await createClient()
+export async function getShiftsByLocation(
+  locationId: string,
+  startDate: string,
+  endDate: string,
+) {
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from('shifts')
-    .select(`
+    .select(
+      `
       *,
       required_skill:skills(*),
       location:locations(*),
       schedule:schedules(*),
-      shift_assignments(*, profile:profiles(*))
-    `)
+      shift_assignments(*, profile:profiles!shift_assignments_staff_id_fkey(*))
+    `,
+    )
     .eq('location_id', locationId)
     .gte('start_time', startDate)
     .lte('start_time', endDate)
-    .order('start_time')
+    .order('start_time');
 
-  if (error) throw error
-  return data
+  if (error) throw error;
+  return data;
 }
 
 export async function getShift(shiftId: string) {
-  const supabase = await createClient()
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from('shifts')
-    .select(`
+    .select(
+      `
       *,
       required_skill:skills(*),
       location:locations(*),
       schedule:schedules(*),
-      shift_assignments(*, profile:profiles(*))
-    `)
+      shift_assignments(*, profile:profiles!shift_assignments_staff_id_fkey(*))
+    `,
+    )
     .eq('id', shiftId)
-    .single()
+    .single();
 
-  if (error) throw error
-  return data
+  if (error) throw error;
+  return data;
 }
 
 export async function createShift(data: {
-  schedule_id: string
-  location_id: string
-  required_skill_id: string
-  start_time: string
-  end_time: string
-  headcount_needed: number
-  notes?: string
+  schedule_id: string;
+  location_id: string;
+  required_skill_id: string;
+  start_time: string;
+  end_time: string;
+  headcount_needed: number;
+  notes?: string;
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
 
   const { data: shift, error } = await supabase
     .from('shifts')
     .insert(data)
     .select('*')
-    .single()
+    .single();
 
-  if (error) throw error
+  if (error) throw error;
 
   await supabase.from('audit_log').insert({
     entity_type: 'shift',
@@ -102,73 +124,82 @@ export async function createShift(data: {
     action: 'create',
     changed_by: user.id,
     after_state: data as unknown as Json,
-  })
+  });
 
-  revalidatePath('/dashboard/schedule')
-  revalidatePath('/dashboard/shifts')
-  return shift
+  revalidatePath('/dashboard/schedule');
+  revalidatePath('/dashboard/shifts');
+  return shift;
 }
 
-export async function updateShift(shiftId: string, data: {
-  required_skill_id?: string
-  start_time?: string
-  end_time?: string
-  headcount_needed?: number
-  notes?: string
-}) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+export async function updateShift(
+  shiftId: string,
+  data: {
+    required_skill_id?: string;
+    start_time?: string;
+    end_time?: string;
+    headcount_needed?: number;
+    notes?: string;
+  },
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
 
   // Get before state
   const { data: before } = await supabase
     .from('shifts')
     .select('*')
     .eq('id', shiftId)
-    .single()
+    .single();
 
   const { data: shift, error } = await supabase
     .from('shifts')
     .update(data)
     .eq('id', shiftId)
     .select('*')
-    .single()
+    .single();
 
-  if (error) throw error
+  if (error) throw error;
 
   // Auto-cancel pending swap requests for this shift
   const { data: assignments } = await supabase
     .from('shift_assignments')
     .select('id')
-    .eq('shift_id', shiftId)
+    .eq('shift_id', shiftId);
 
   if (assignments && assignments.length > 0) {
-    const assignmentIds = assignments.map(a => a.id)
+    const assignmentIds = assignments.map((a) => a.id);
     const { data: pendingSwaps } = await supabase
       .from('swap_requests')
       .select('*, requesting_assignment:shift_assignments(staff_id)')
       .in('requesting_assignment_id', assignmentIds)
-      .in('status', ['pending_peer', 'pending_manager'])
+      .in('status', ['pending_peer', 'pending_manager']);
 
     if (pendingSwaps && pendingSwaps.length > 0) {
       await supabase
         .from('swap_requests')
         .update({ status: 'cancelled', resolved_at: new Date().toISOString() })
-        .in('id', pendingSwaps.map(s => s.id))
+        .in(
+          'id',
+          pendingSwaps.map((s) => s.id),
+        );
 
       // Notify affected staff
       for (const swap of pendingSwaps) {
-        const staffId = (swap.requesting_assignment as any)?.staff_id
+        const staffId = (swap.requesting_assignment as any)?.staff_id;
         if (staffId) {
           await supabase.from('notifications').insert({
             user_id: staffId,
             type: 'swap_cancelled',
             title: 'Swap Request Cancelled',
-            message: 'Your swap request was automatically cancelled because the shift was modified.',
+            message:
+              'Your swap request was automatically cancelled because the shift was modified.',
             link: '/dashboard/swap-requests',
             is_read: false,
             delivery_method: 'in_app',
-          })
+          });
         }
       }
     }
@@ -181,23 +212,25 @@ export async function updateShift(shiftId: string, data: {
     changed_by: user.id,
     before_state: before as unknown as Json,
     after_state: shift as unknown as Json,
-  })
+  });
 
-  revalidatePath('/dashboard/schedule')
-  revalidatePath('/dashboard/shifts')
-  return shift
+  revalidatePath('/dashboard/schedule');
+  revalidatePath('/dashboard/shifts');
+  return shift;
 }
 
 export async function deleteShift(shiftId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
 
   const { data: before } = await supabase
     .from('shifts')
     .select('*, shift_assignments(staff_id)')
     .eq('id', shiftId)
-    .single()
+    .single();
 
   // Notify assigned staff
   if (before?.shift_assignments) {
@@ -210,12 +243,12 @@ export async function deleteShift(shiftId: string) {
         link: '/dashboard/my-shifts',
         is_read: false,
         delivery_method: 'in_app',
-      })
+      });
     }
   }
 
-  const { error } = await supabase.from('shifts').delete().eq('id', shiftId)
-  if (error) throw error
+  const { error } = await supabase.from('shifts').delete().eq('id', shiftId);
+  if (error) throw error;
 
   await supabase.from('audit_log').insert({
     entity_type: 'shift',
@@ -223,10 +256,10 @@ export async function deleteShift(shiftId: string) {
     action: 'delete',
     changed_by: user.id,
     before_state: before as unknown as Json,
-  })
+  });
 
-  revalidatePath('/dashboard/schedule')
-  revalidatePath('/dashboard/shifts')
+  revalidatePath('/dashboard/schedule');
+  revalidatePath('/dashboard/shifts');
 }
 
 // ============================================
@@ -235,34 +268,44 @@ export async function deleteShift(shiftId: string) {
 
 export async function checkConstraints(
   staffId: string,
-  shiftId: string
+  shiftId: string,
 ): Promise<ConstraintViolation[]> {
-  const supabase = await createClient()
-  const violations: ConstraintViolation[] = []
+  const supabase = await createClient();
+  const violations: ConstraintViolation[] = [];
 
   // Get the shift details
   const { data: shift } = await supabase
     .from('shifts')
     .select('*, required_skill:skills(*), location:locations(*)')
     .eq('id', shiftId)
-    .single()
+    .single();
 
-  if (!shift) return [{ type: 'double_booking', severity: 'error', message: 'Shift not found', details: {} }]
+  if (!shift)
+    return [
+      {
+        type: 'double_booking',
+        severity: 'error',
+        message: 'Shift not found',
+        details: {},
+      },
+    ];
 
   // 1. Check skill requirement
   const { data: staffSkills } = await supabase
     .from('staff_skills')
     .select('skill_id')
-    .eq('staff_id', staffId)
+    .eq('staff_id', staffId);
 
-  const hasSkill = staffSkills?.some(s => s.skill_id === shift.required_skill_id)
+  const hasSkill = staffSkills?.some(
+    (s) => s.skill_id === shift.required_skill_id,
+  );
   if (!hasSkill) {
     violations.push({
       type: 'missing_skill',
       severity: 'error',
       message: `Staff member does not have the "${shift.required_skill?.name}" skill required for this shift.`,
       details: { required_skill: shift.required_skill?.name },
-    })
+    });
   }
 
   // 2. Check location certification
@@ -270,48 +313,50 @@ export async function checkConstraints(
     .from('staff_locations')
     .select('location_id')
     .eq('staff_id', staffId)
-    .is('decertified_at', null)
+    .is('decertified_at', null);
 
-  const isCertified = staffLocations?.some(l => l.location_id === shift.location_id)
+  const isCertified = staffLocations?.some(
+    (l) => l.location_id === shift.location_id,
+  );
   if (!isCertified) {
     violations.push({
       type: 'not_certified',
       severity: 'error',
       message: `Staff member is not certified to work at ${shift.location?.name}.`,
       details: { location: shift.location?.name },
-    })
+    });
   }
 
   // 3. Check availability
-  const shiftStart = parseISO(shift.start_time)
-  const dayOfWeek = shiftStart.getDay()
+  const shiftStart = parseISO(shift.start_time);
+  const dayOfWeek = shiftStart.getDay();
 
   const { data: availabilities } = await supabase
     .from('availability')
     .select('*')
-    .eq('staff_id', staffId)
+    .eq('staff_id', staffId);
 
   // Check for exception (specific date override)
-  const shiftDate = format(shiftStart, 'yyyy-MM-dd')
+  const shiftDate = format(shiftStart, 'yyyy-MM-dd');
   const exceptions = availabilities?.filter(
-    a => a.type === 'exception' && a.specific_date === shiftDate
-  )
+    (a) => a.type === 'exception' && a.specific_date === shiftDate,
+  );
 
   if (exceptions && exceptions.length > 0) {
-    const isBlocked = exceptions.some(e => !e.is_available)
+    const isBlocked = exceptions.some((e) => !e.is_available);
     if (isBlocked) {
       violations.push({
         type: 'not_available',
         severity: 'error',
         message: 'Staff member has marked this date as unavailable.',
         details: { date: shiftDate },
-      })
+      });
     }
   } else {
     // Check recurring availability
     const recurring = availabilities?.filter(
-      a => a.type === 'recurring' && a.day_of_week === dayOfWeek
-    )
+      (a) => a.type === 'recurring' && a.day_of_week === dayOfWeek,
+    );
 
     if (!recurring || recurring.length === 0) {
       violations.push({
@@ -319,7 +364,7 @@ export async function checkConstraints(
         severity: 'error',
         message: `Staff member has no availability set for ${format(shiftStart, 'EEEE')}.`,
         details: { day: format(shiftStart, 'EEEE') },
-      })
+      });
     }
   }
 
@@ -328,14 +373,21 @@ export async function checkConstraints(
     .from('shift_assignments')
     .select('*, shift:shifts(*)')
     .eq('staff_id', staffId)
-    .eq('status', 'assigned')
+    .eq('status', 'assigned');
 
   if (existingAssignments) {
     for (const assignment of existingAssignments) {
-      const existingShift = assignment.shift
-      if (!existingShift || existingShift.id === shiftId) continue
+      const existingShift = assignment.shift;
+      if (!existingShift || existingShift.id === shiftId) continue;
 
-      if (doShiftsOverlap(shift.start_time, shift.end_time, existingShift.start_time, existingShift.end_time)) {
+      if (
+        doShiftsOverlap(
+          shift.start_time,
+          shift.end_time,
+          existingShift.start_time,
+          existingShift.end_time,
+        )
+      ) {
         violations.push({
           type: 'double_booking',
           severity: 'error',
@@ -345,15 +397,29 @@ export async function checkConstraints(
             conflicting_start: existingShift.start_time,
             conflicting_end: existingShift.end_time,
           },
-        })
+        });
       }
 
       // 5. Check minimum 10-hour gap
-      const gap1 = getGapBetweenShifts(existingShift.end_time, shift.start_time)
-      const gap2 = getGapBetweenShifts(shift.end_time, existingShift.start_time)
-      const minGap = Math.min(gap1, gap2)
+      const gap1 = getGapBetweenShifts(
+        existingShift.end_time,
+        shift.start_time,
+      );
+      const gap2 = getGapBetweenShifts(
+        shift.end_time,
+        existingShift.start_time,
+      );
+      const minGap = Math.min(gap1, gap2);
 
-      if (minGap < MINIMUM_GAP_HOURS && !doShiftsOverlap(shift.start_time, shift.end_time, existingShift.start_time, existingShift.end_time)) {
+      if (
+        minGap < MINIMUM_GAP_HOURS &&
+        !doShiftsOverlap(
+          shift.start_time,
+          shift.end_time,
+          existingShift.start_time,
+          existingShift.end_time,
+        )
+      ) {
         violations.push({
           type: 'minimum_gap',
           severity: 'error',
@@ -363,29 +429,33 @@ export async function checkConstraints(
             required_gap: MINIMUM_GAP_HOURS,
             conflicting_shift_id: existingShift.id,
           },
-        })
+        });
       }
     }
   }
 
   // 6. Check overtime rules
-  const weekStartDate = startOfWeek(shiftStart, { weekStartsOn: 1 })
-  const weekEndDate = endOfWeek(shiftStart, { weekStartsOn: 1 })
+  const weekStartDate = startOfWeek(shiftStart, { weekStartsOn: 1 });
+  const weekEndDate = endOfWeek(shiftStart, { weekStartsOn: 1 });
 
   // Calculate weekly hours
-  const weeklyAssignments = existingAssignments?.filter(a => {
-    if (!a.shift) return false
-    const assignmentStart = parseISO(a.shift.start_time)
-    return assignmentStart >= weekStartDate && assignmentStart <= weekEndDate
-  }) || []
+  const weeklyAssignments =
+    existingAssignments?.filter((a) => {
+      if (!a.shift) return false;
+      const assignmentStart = parseISO(a.shift.start_time);
+      return assignmentStart >= weekStartDate && assignmentStart <= weekEndDate;
+    }) || [];
 
   let weeklyHours = weeklyAssignments.reduce((sum, a) => {
-    if (!a.shift) return sum
-    return sum + getShiftDurationHours(a.shift.start_time, a.shift.end_time)
-  }, 0)
+    if (!a.shift) return sum;
+    return sum + getShiftDurationHours(a.shift.start_time, a.shift.end_time);
+  }, 0);
 
-  const thisShiftHours = getShiftDurationHours(shift.start_time, shift.end_time)
-  const projectedWeeklyHours = weeklyHours + thisShiftHours
+  const thisShiftHours = getShiftDurationHours(
+    shift.start_time,
+    shift.end_time,
+  );
+  const projectedWeeklyHours = weeklyHours + thisShiftHours;
 
   if (projectedWeeklyHours > OVERTIME_LIMIT_HOURS) {
     violations.push({
@@ -397,7 +467,7 @@ export async function checkConstraints(
         shift_hours: thisShiftHours,
         projected_hours: projectedWeeklyHours,
       },
-    })
+    });
   } else if (projectedWeeklyHours >= OVERTIME_WARNING_HOURS) {
     violations.push({
       type: 'overtime_weekly',
@@ -408,7 +478,7 @@ export async function checkConstraints(
         shift_hours: thisShiftHours,
         projected_hours: projectedWeeklyHours,
       },
-    })
+    });
   }
 
   // Daily hours check
@@ -418,46 +488,46 @@ export async function checkConstraints(
       severity: 'error',
       message: `This shift is ${thisShiftHours.toFixed(1)}h long, exceeding the ${DAILY_HARD_BLOCK_HOURS}h daily hard limit.`,
       details: { shift_hours: thisShiftHours, limit: DAILY_HARD_BLOCK_HOURS },
-    })
+    });
   } else if (thisShiftHours > DAILY_WARNING_HOURS) {
     violations.push({
       type: 'overtime_daily',
       severity: 'warning',
       message: `This shift is ${thisShiftHours.toFixed(1)}h long, exceeding the ${DAILY_WARNING_HOURS}h daily recommended maximum.`,
       details: { shift_hours: thisShiftHours, limit: DAILY_WARNING_HOURS },
-    })
+    });
   }
 
   // 7. Consecutive days check
-  const shiftDate2 = format(shiftStart, 'yyyy-MM-dd')
-  const daysWorked = new Set<string>()
-  existingAssignments?.forEach(a => {
+  const shiftDate2 = format(shiftStart, 'yyyy-MM-dd');
+  const daysWorked = new Set<string>();
+  existingAssignments?.forEach((a) => {
     if (a.shift) {
-      daysWorked.add(format(parseISO(a.shift.start_time), 'yyyy-MM-dd'))
+      daysWorked.add(format(parseISO(a.shift.start_time), 'yyyy-MM-dd'));
     }
-  })
-  daysWorked.add(shiftDate2)
+  });
+  daysWorked.add(shiftDate2);
 
   // Count consecutive days including this one
-  let consecutiveDays = 1
-  const checkDate = parseISO(shiftDate2)
+  let consecutiveDays = 1;
+  const checkDate = parseISO(shiftDate2);
   for (let i = 1; i <= 7; i++) {
-    const prevDate = new Date(checkDate)
-    prevDate.setDate(prevDate.getDate() - i)
+    const prevDate = new Date(checkDate);
+    prevDate.setDate(prevDate.getDate() - i);
     if (daysWorked.has(format(prevDate, 'yyyy-MM-dd'))) {
-      consecutiveDays++
+      consecutiveDays++;
     } else {
-      break
+      break;
     }
   }
   // Also check forward
   for (let i = 1; i <= 7; i++) {
-    const nextDate = new Date(checkDate)
-    nextDate.setDate(nextDate.getDate() + i)
+    const nextDate = new Date(checkDate);
+    nextDate.setDate(nextDate.getDate() + i);
     if (daysWorked.has(format(nextDate, 'yyyy-MM-dd'))) {
-      consecutiveDays++
+      consecutiveDays++;
     } else {
-      break
+      break;
     }
   }
 
@@ -467,17 +537,17 @@ export async function checkConstraints(
       severity: 'error',
       message: `This would be ${consecutiveDays} consecutive days worked. 7+ consecutive days requires manager override with documented reason.`,
       details: { consecutive_days: consecutiveDays },
-    })
+    });
   } else if (consecutiveDays >= CONSECUTIVE_DAY_WARNING) {
     violations.push({
       type: 'consecutive_days',
       severity: 'warning',
       message: `This would be day ${consecutiveDays} in a row for this staff member.`,
       details: { consecutive_days: consecutiveDays },
-    })
+    });
   }
 
-  return violations
+  return violations;
 }
 
 // ============================================
@@ -488,25 +558,31 @@ export async function assignStaffToShift(
   staffId: string,
   shiftId: string,
   overrideWarnings: boolean = false,
-  overrideReason?: string
-): Promise<{ success: boolean; violations?: ConstraintViolation[]; message?: string }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+  overrideReason?: string,
+): Promise<{
+  success: boolean;
+  violations?: ConstraintViolation[];
+  message?: string;
+}> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
 
   // Run constraint checks
-  const violations = await checkConstraints(staffId, shiftId)
+  const violations = await checkConstraints(staffId, shiftId);
 
   // Check for hard errors
-  const errors = violations.filter(v => v.severity === 'error')
+  const errors = violations.filter((v) => v.severity === 'error');
   if (errors.length > 0) {
-    return { success: false, violations: errors }
+    return { success: false, violations: errors };
   }
 
   // Check for warnings (need override)
-  const warnings = violations.filter(v => v.severity === 'warning')
+  const warnings = violations.filter((v) => v.severity === 'warning');
   if (warnings.length > 0 && !overrideWarnings) {
-    return { success: false, violations: warnings }
+    return { success: false, violations: warnings };
   }
 
   // Check if already assigned
@@ -515,10 +591,13 @@ export async function assignStaffToShift(
     .select('id')
     .eq('shift_id', shiftId)
     .eq('staff_id', staffId)
-    .single()
+    .single();
 
   if (existing) {
-    return { success: false, message: 'Staff member is already assigned to this shift.' }
+    return {
+      success: false,
+      message: 'Staff member is already assigned to this shift.',
+    };
   }
 
   // Check headcount
@@ -526,10 +605,14 @@ export async function assignStaffToShift(
     .from('shifts')
     .select('headcount_needed, shift_assignments(id)')
     .eq('id', shiftId)
-    .single()
+    .single();
 
-  if (shift && shift.shift_assignments && shift.shift_assignments.length >= shift.headcount_needed) {
-    return { success: false, message: 'This shift is already fully staffed.' }
+  if (
+    shift &&
+    shift.shift_assignments &&
+    shift.shift_assignments.length >= shift.headcount_needed
+  ) {
+    return { success: false, message: 'This shift is already fully staffed.' };
   }
 
   // Create assignment
@@ -538,26 +621,36 @@ export async function assignStaffToShift(
     staff_id: staffId,
     status: 'assigned',
     assigned_by: user.id,
-  })
+  });
 
   if (error) {
     if (error.code === '23505') {
-      return { success: false, message: 'Staff member was just assigned by another manager.' }
+      return {
+        success: false,
+        message: 'Staff member was just assigned by another manager.',
+      };
     }
-    throw error
+    throw error;
   }
 
   // Handle consecutive day override
-  if (overrideReason && warnings.some(w => w.type === 'consecutive_days')) {
-    const shiftData = await supabase.from('shifts').select('start_time').eq('id', shiftId).single()
+  if (overrideReason && warnings.some((w) => w.type === 'consecutive_days')) {
+    const shiftData = await supabase
+      .from('shifts')
+      .select('start_time')
+      .eq('id', shiftId)
+      .single();
     if (shiftData.data) {
-      const weekStart = format(startOfWeek(parseISO(shiftData.data.start_time), { weekStartsOn: 1 }), 'yyyy-MM-dd')
+      const weekStart = format(
+        startOfWeek(parseISO(shiftData.data.start_time), { weekStartsOn: 1 }),
+        'yyyy-MM-dd',
+      );
       await supabase.from('overtime_overrides').insert({
         staff_id: staffId,
         week_start: weekStart,
         manager_id: user.id,
         reason: overrideReason,
-      })
+      });
     }
   }
 
@@ -570,7 +663,7 @@ export async function assignStaffToShift(
     link: '/dashboard/my-shifts',
     is_read: false,
     delivery_method: 'in_app',
-  })
+  });
 
   // Audit log
   await supabase.from('audit_log').insert({
@@ -579,34 +672,43 @@ export async function assignStaffToShift(
     action: 'create',
     changed_by: user.id,
     after_state: { staff_id: staffId, shift_id: shiftId } as unknown as Json,
-    metadata: (overrideWarnings ? { override_reason: overrideReason, warnings: JSON.parse(JSON.stringify(warnings)) } : undefined) as Json | undefined,
-  })
+    metadata: (overrideWarnings
+      ? {
+          override_reason: overrideReason,
+          warnings: JSON.parse(JSON.stringify(warnings)),
+        }
+      : undefined) as Json | undefined,
+  });
 
-  revalidatePath('/dashboard/schedule')
-  revalidatePath('/dashboard/shifts')
-  revalidatePath('/dashboard/my-shifts')
-  return { success: true }
+  revalidatePath('/dashboard/schedule');
+  revalidatePath('/dashboard/shifts');
+  revalidatePath('/dashboard/my-shifts');
+  return { success: true };
 }
 
 export async function unassignStaffFromShift(assignmentId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
 
   const { data: assignment } = await supabase
     .from('shift_assignments')
-    .select('*, shift:shifts(*), profile:profiles(*)')
+    .select(
+      '*, shift:shifts(*), profile:profiles!shift_assignments_staff_id_fkey(*)',
+    )
     .eq('id', assignmentId)
-    .single()
+    .single();
 
-  if (!assignment) throw new Error('Assignment not found')
+  if (!assignment) throw new Error('Assignment not found');
 
   const { error } = await supabase
     .from('shift_assignments')
     .delete()
-    .eq('id', assignmentId)
+    .eq('id', assignmentId);
 
-  if (error) throw error
+  if (error) throw error;
 
   // Notify staff
   await supabase.from('notifications').insert({
@@ -617,7 +719,7 @@ export async function unassignStaffFromShift(assignmentId: string) {
     link: '/dashboard/my-shifts',
     is_read: false,
     delivery_method: 'in_app',
-  })
+  });
 
   await supabase.from('audit_log').insert({
     entity_type: 'shift_assignment',
@@ -625,152 +727,167 @@ export async function unassignStaffFromShift(assignmentId: string) {
     action: 'delete',
     changed_by: user.id,
     before_state: assignment as unknown as Json,
-  })
+  });
 
-  revalidatePath('/dashboard/schedule')
-  revalidatePath('/dashboard/shifts')
-  revalidatePath('/dashboard/my-shifts')
+  revalidatePath('/dashboard/schedule');
+  revalidatePath('/dashboard/shifts');
+  revalidatePath('/dashboard/my-shifts');
 }
 
 // ============================================
 // COVERAGE CANDIDATES
 // ============================================
 
-export async function findCoverageCandidates(shiftId: string): Promise<CoverageCandidate[]> {
-  const supabase = await createClient()
+export async function findCoverageCandidates(
+  shiftId: string,
+): Promise<CoverageCandidate[]> {
+  const supabase = await createClient();
 
   const { data: shift } = await supabase
     .from('shifts')
     .select('*, required_skill:skills(*), location:locations(*)')
     .eq('id', shiftId)
-    .single()
+    .single();
 
-  if (!shift) return []
+  if (!shift) return [];
 
   // Get all staff members
   const { data: allStaff } = await supabase
     .from('profiles')
-    .select(`
+    .select(
+      `
       *,
       staff_skills(skill_id),
       staff_locations(location_id, decertified_at)
-    `)
-    .eq('role', 'staff')
+    `,
+    )
+    .eq('role', 'staff');
 
-  if (!allStaff) return []
+  if (!allStaff) return [];
 
   // Get already assigned staff for this shift
   const { data: currentAssignments } = await supabase
     .from('shift_assignments')
     .select('staff_id')
-    .eq('shift_id', shiftId)
+    .eq('shift_id', shiftId);
 
-  const assignedStaffIds = new Set(currentAssignments?.map(a => a.staff_id) || [])
+  const assignedStaffIds = new Set(
+    currentAssignments?.map((a) => a.staff_id) || [],
+  );
 
-  const candidates: CoverageCandidate[] = []
+  const candidates: CoverageCandidate[] = [];
 
   for (const staff of allStaff) {
-    if (assignedStaffIds.has(staff.id)) continue
+    if (assignedStaffIds.has(staff.id)) continue;
 
     const hasSkill = staff.staff_skills?.some(
-      (s: { skill_id: string }) => s.skill_id === shift.required_skill_id
-    )
+      (s: { skill_id: string }) => s.skill_id === shift.required_skill_id,
+    );
     const isCertified = staff.staff_locations?.some(
       (l: { location_id: string; decertified_at: string | null }) =>
-        l.location_id === shift.location_id && !l.decertified_at
-    )
+        l.location_id === shift.location_id && !l.decertified_at,
+    );
 
-    const violations = await checkConstraints(staff.id, shiftId)
+    const violations = await checkConstraints(staff.id, shiftId);
 
     // Calculate weekly hours
-    const shiftStart = parseISO(shift.start_time)
-    const weekStartDate = startOfWeek(shiftStart, { weekStartsOn: 1 })
-    const weekEndDate = endOfWeek(shiftStart, { weekStartsOn: 1 })
+    const shiftStart = parseISO(shift.start_time);
+    const weekStartDate = startOfWeek(shiftStart, { weekStartsOn: 1 });
+    const weekEndDate = endOfWeek(shiftStart, { weekStartsOn: 1 });
 
     const { data: weekAssignments } = await supabase
       .from('shift_assignments')
       .select('shift:shifts(start_time, end_time)')
       .eq('staff_id', staff.id)
-      .eq('status', 'assigned')
+      .eq('status', 'assigned');
 
-    let weeklyHours = 0
-    weekAssignments?.forEach(a => {
-      const s = a.shift as unknown as { start_time: string; end_time: string } | null
+    let weeklyHours = 0;
+    weekAssignments?.forEach((a) => {
+      const s = a.shift as unknown as {
+        start_time: string;
+        end_time: string;
+      } | null;
       if (s) {
-        const aStart = parseISO(s.start_time)
+        const aStart = parseISO(s.start_time);
         if (aStart >= weekStartDate && aStart <= weekEndDate) {
-          weeklyHours += getShiftDurationHours(s.start_time, s.end_time)
+          weeklyHours += getShiftDurationHours(s.start_time, s.end_time);
         }
       }
-    })
+    });
 
     candidates.push({
       profile: staff,
       violations,
       weekly_hours: weeklyHours,
-      is_available: !violations.some(v => v.type === 'not_available'),
+      is_available: !violations.some((v) => v.type === 'not_available'),
       has_skill: !!hasSkill,
       is_certified: !!isCertified,
-    })
+    });
   }
 
   // Sort: qualified & available first, then by weekly hours (fewest first)
   candidates.sort((a, b) => {
-    const aErrors = a.violations.filter(v => v.severity === 'error').length
-    const bErrors = b.violations.filter(v => v.severity === 'error').length
-    if (aErrors !== bErrors) return aErrors - bErrors
-    return a.weekly_hours - b.weekly_hours
-  })
+    const aErrors = a.violations.filter((v) => v.severity === 'error').length;
+    const bErrors = b.violations.filter((v) => v.severity === 'error').length;
+    if (aErrors !== bErrors) return aErrors - bErrors;
+    return a.weekly_hours - b.weekly_hours;
+  });
 
-  return candidates
+  return candidates;
 }
 
 // Get staff's shifts
 export async function getMyShifts(startDate?: string, endDate?: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return []
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
 
   let query = supabase
     .from('shift_assignments')
-    .select(`
+    .select(
+      `
       *,
       shift:shifts(*, required_skill:skills(*), location:locations(*), schedule:schedules(*))
-    `)
+    `,
+    )
     .eq('staff_id', user.id)
     .eq('status', 'assigned')
-    .order('assigned_at', { ascending: false })
+    .order('assigned_at', { ascending: false });
 
-  const { data, error } = await query
-  if (error) throw error
+  const { data, error } = await query;
+  if (error) throw error;
 
   // Filter by date if provided
   if (startDate && endDate && data) {
-    return data.filter(a => {
-      const shift = a.shift as any
-      if (!shift) return false
-      return shift.start_time >= startDate && shift.start_time <= endDate
-    })
+    return data.filter((a) => {
+      const shift = a.shift as any;
+      if (!shift) return false;
+      return shift.start_time >= startDate && shift.start_time <= endDate;
+    });
   }
 
-  return data
+  return data;
 }
 
 // Get all shifts for a location (for manager view)
 export async function getAllShiftsForLocation(locationId: string) {
-  const supabase = await createClient()
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from('shifts')
-    .select(`
+    .select(
+      `
       *,
       required_skill:skills(*),
       location:locations(*),
       schedule:schedules(*),
-      shift_assignments(*, profile:profiles(*))
-    `)
+      shift_assignments(*, profile:profiles!shift_assignments_staff_id_fkey(*))
+    `,
+    )
     .eq('location_id', locationId)
-    .order('start_time', { ascending: false })
+    .order('start_time', { ascending: false });
 
-  if (error) throw error
-  return data
+  if (error) throw error;
+  return data;
 }

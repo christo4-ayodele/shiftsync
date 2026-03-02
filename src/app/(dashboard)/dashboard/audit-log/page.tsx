@@ -1,20 +1,31 @@
-'use client'
+'use client';
 
-import { useState, useEffect, useCallback } from 'react'
-import { useCurrentUser } from '@/hooks/use-current-user'
-import { getAuditLogs, exportAuditLogs } from '@/lib/actions/audit'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
+import { useState, useEffect, useCallback } from 'react';
+import { useCurrentUser } from '@/hooks/use-current-user';
+import { getAuditLogs, exportAuditLogs } from '@/lib/actions/audit';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table'
-import { Download, FileText, Search, Clock, User2, Filter } from 'lucide-react'
-import { format, parseISO, subDays } from 'date-fns'
-import { toast } from 'sonner'
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Download, FileText, Search, Clock, User2, Filter } from 'lucide-react';
+import { format, parseISO, subDays } from 'date-fns';
+import { toast } from 'sonner';
 
 const ACTION_COLORS: Record<string, string> = {
   shift_created: 'bg-green-100 text-green-800',
@@ -28,61 +39,75 @@ const ACTION_COLORS: Record<string, string> = {
   swap_approved: 'bg-green-100 text-green-800',
   swap_rejected: 'bg-red-100 text-red-800',
   overtime_override: 'bg-orange-100 text-orange-800',
-}
+};
 
 export default function AuditLogPage() {
-  const { user } = useCurrentUser()
-  const [logs, setLogs] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [actionFilter, setActionFilter] = useState<string>('all')
-  const [dateRange, setDateRange] = useState<string>('7')
-  const [search, setSearch] = useState('')
-  const [exporting, setExporting] = useState(false)
+  const { user } = useCurrentUser();
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actionFilter, setActionFilter] = useState<string>('all');
+  const [dateRange, setDateRange] = useState<string>('7');
+  const [search, setSearch] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   const fetchLogs = useCallback(async () => {
-    setLoading(true)
-    const startDate = format(subDays(new Date(), parseInt(dateRange)), 'yyyy-MM-dd')
+    setLoading(true);
+    const startDate = format(
+      subDays(new Date(), parseInt(dateRange)),
+      'yyyy-MM-dd',
+    );
     const data = await getAuditLogs({
       action: actionFilter !== 'all' ? actionFilter : undefined,
       startDate,
-    })
-    setLogs(data)
-    setLoading(false)
-  }, [actionFilter, dateRange])
+    });
+    setLogs(data);
+    setLoading(false);
+  }, [actionFilter, dateRange]);
 
-  useEffect(() => { fetchLogs() }, [fetchLogs])
+  useEffect(() => {
+    fetchLogs();
+  }, [fetchLogs]);
 
   async function handleExport() {
-    setExporting(true)
-    const startDate = format(subDays(new Date(), parseInt(dateRange)), 'yyyy-MM-dd')
+    setExporting(true);
+    const startDate = format(
+      subDays(new Date(), parseInt(dateRange)),
+      'yyyy-MM-dd',
+    );
     const csv = await exportAuditLogs({
       action: actionFilter !== 'all' ? actionFilter : undefined,
       startDate,
-    })
+    });
     // Download CSV
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `audit-log-${format(new Date(), 'yyyy-MM-dd')}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-    setExporting(false)
-    toast.success('Audit log exported')
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `audit-log-${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setExporting(false);
+    toast.success('Audit log exported');
   }
 
-  const filtered = logs.filter(log => {
-    if (!search) return true
-    const searchLower = search.toLowerCase()
+  const filtered = logs.filter((log) => {
+    if (!search) return true;
+    const searchLower = search.toLowerCase();
     return (
       log.changed_by_profile?.full_name?.toLowerCase().includes(searchLower) ||
       log.action?.toLowerCase().includes(searchLower) ||
-      JSON.stringify(log.metadata || {}).toLowerCase().includes(searchLower)
-    )
-  })
+      JSON.stringify(log.metadata || {})
+        .toLowerCase()
+        .includes(searchLower)
+    );
+  });
 
   if (user?.role === 'staff') {
-    return <div className="text-center py-12 text-muted-foreground">Access restricted to managers and admins.</div>
+    return (
+      <div className="text-center py-12 text-muted-foreground">
+        Access restricted to managers and admins.
+      </div>
+    );
   }
 
   return (
@@ -90,10 +115,13 @@ export default function AuditLogPage() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Audit Log</h1>
-          <p className="text-muted-foreground">Complete history of scheduling changes</p>
+          <p className="text-muted-foreground">
+            Complete history of scheduling changes
+          </p>
         </div>
         <Button variant="outline" onClick={handleExport} disabled={exporting}>
-          <Download className="h-4 w-4 mr-2" /> {exporting ? 'Exporting...' : 'Export CSV'}
+          <Download className="h-4 w-4 mr-2" />{' '}
+          {exporting ? 'Exporting...' : 'Export CSV'}
         </Button>
       </div>
 
@@ -104,7 +132,7 @@ export default function AuditLogPage() {
           <Input
             placeholder="Search logs..."
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={(e) => setSearch(e.target.value)}
             className="pl-9 w-[200px]"
           />
         </div>
@@ -119,7 +147,9 @@ export default function AuditLogPage() {
             <SelectItem value="shift_deleted">Shift Deleted</SelectItem>
             <SelectItem value="staff_assigned">Staff Assigned</SelectItem>
             <SelectItem value="staff_unassigned">Staff Unassigned</SelectItem>
-            <SelectItem value="schedule_published">Schedule Published</SelectItem>
+            <SelectItem value="schedule_published">
+              Schedule Published
+            </SelectItem>
             <SelectItem value="swap_requested">Swap Requested</SelectItem>
             <SelectItem value="swap_approved">Swap Approved</SelectItem>
             <SelectItem value="swap_rejected">Swap Rejected</SelectItem>
@@ -141,7 +171,11 @@ export default function AuditLogPage() {
 
       {/* Results */}
       {loading ? (
-        <div className="space-y-2">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
+        <div className="space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-10" />
+          ))}
+        </div>
       ) : filtered.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">
@@ -162,13 +196,15 @@ export default function AuditLogPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map(log => (
+                {filtered.map((log) => (
                   <TableRow key={log.id}>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                       {format(parseISO(log.created_at), 'MMM d, h:mm a')}
                     </TableCell>
                     <TableCell>
-                      <Badge className={`text-[10px] ${ACTION_COLORS[log.action] || ''}`}>
+                      <Badge
+                        className={`text-[10px] ${ACTION_COLORS[log.action] || ''}`}
+                      >
                         {log.action?.replace(/_/g, ' ')}
                       </Badge>
                     </TableCell>
@@ -178,9 +214,14 @@ export default function AuditLogPage() {
                     <TableCell className="text-xs text-muted-foreground max-w-[300px] truncate">
                       {log.metadata ? (
                         <span title={JSON.stringify(log.metadata, null, 2)}>
-                          {Object.entries(log.metadata).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(', ')}
+                          {Object.entries(log.metadata)
+                            .slice(0, 3)
+                            .map(([k, v]) => `${k}: ${v}`)
+                            .join(', ')}
                         </span>
-                      ) : '—'}
+                      ) : (
+                        '—'
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -193,5 +234,5 @@ export default function AuditLogPage() {
         Showing {filtered.length} of {logs.length} entries
       </p>
     </div>
-  )
+  );
 }

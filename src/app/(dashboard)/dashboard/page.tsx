@@ -1,71 +1,82 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Users, Calendar, Clock, AlertTriangle, ArrowLeftRight, Radio } from 'lucide-react'
-import Link from 'next/link'
+import { createClient } from '@/lib/supabase/server';
+import { redirect } from 'next/navigation';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import {
+  Users,
+  Calendar,
+  Clock,
+  AlertTriangle,
+  ArrowLeftRight,
+  Radio,
+} from 'lucide-react';
+import Link from 'next/link';
 
 export default async function DashboardPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect('/login');
 
   const { data: profile } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', user.id)
-    .single()
+    .single();
 
-  if (!profile) redirect('/login')
+  if (!profile) redirect('/login');
 
   // Fetch dashboard stats based on role
-  const now = new Date().toISOString()
+  const now = new Date().toISOString();
 
   // Counts
   const { count: staffCount } = await supabase
     .from('profiles')
     .select('*', { count: 'exact', head: true })
-    .eq('role', 'staff')
+    .eq('role', 'staff');
 
   const { count: locationCount } = await supabase
     .from('locations')
-    .select('*', { count: 'exact', head: true })
+    .select('*', { count: 'exact', head: true });
 
   const { count: pendingSwaps } = await supabase
     .from('swap_requests')
     .select('*', { count: 'exact', head: true })
-    .in('status', ['pending_peer', 'pending_manager'])
+    .in('status', ['pending_peer', 'pending_manager']);
 
   // Active shifts (happening now)
   const { data: activeShifts } = await supabase
     .from('shifts')
     .select('id')
     .lte('start_time', now)
-    .gte('end_time', now)
+    .gte('end_time', now);
 
   const { count: unreadNotifications } = await supabase
     .from('notifications')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', user.id)
-    .eq('is_read', false)
+    .eq('is_read', false);
 
   const stats = [
-    ...(profile.role !== 'staff' ? [
-      {
-        title: 'Total Staff',
-        value: staffCount || 0,
-        icon: Users,
-        href: '/dashboard/staff',
-        color: 'text-blue-600',
-      },
-      {
-        title: 'Locations',
-        value: locationCount || 0,
-        icon: Calendar,
-        href: '/dashboard/schedule',
-        color: 'text-green-600',
-      },
-    ] : []),
+    ...(profile.role !== 'staff'
+      ? [
+          {
+            title: 'Total Staff',
+            value: staffCount || 0,
+            icon: Users,
+            href: '/dashboard/staff',
+            color: 'text-blue-600',
+          },
+          {
+            title: 'Locations',
+            value: locationCount || 0,
+            icon: Calendar,
+            href: '/dashboard/schedule',
+            color: 'text-green-600',
+          },
+        ]
+      : []),
     {
       title: 'Active Shifts Now',
       value: activeShifts?.length || 0,
@@ -87,15 +98,19 @@ export default async function DashboardPage() {
       href: '/dashboard/notifications',
       color: 'text-red-600',
     },
-  ]
+  ];
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Welcome back, {profile.full_name}</h1>
+        <h1 className="text-2xl font-bold">
+          Welcome back, {profile.full_name}
+        </h1>
         <p className="text-muted-foreground">
-          {profile.role === 'admin' && 'Corporate Admin Dashboard — All locations'}
-          {profile.role === 'manager' && 'Manager Dashboard — Your assigned locations'}
+          {profile.role === 'admin' &&
+            'Corporate Admin Dashboard — All locations'}
+          {profile.role === 'manager' &&
+            'Manager Dashboard — Your assigned locations'}
           {profile.role === 'staff' && 'Your shifts and schedule overview'}
         </p>
       </div>
@@ -135,7 +150,9 @@ export default async function DashboardPage() {
                   <Calendar className="h-5 w-5 text-blue-600" />
                   <div>
                     <p className="font-medium text-sm">View Schedule</p>
-                    <p className="text-xs text-muted-foreground">Manage weekly schedules</p>
+                    <p className="text-xs text-muted-foreground">
+                      Manage weekly schedules
+                    </p>
                   </div>
                 </Link>
                 <Link
@@ -145,7 +162,9 @@ export default async function DashboardPage() {
                   <Clock className="h-5 w-5 text-orange-600" />
                   <div>
                     <p className="font-medium text-sm">Overtime Dashboard</p>
-                    <p className="text-xs text-muted-foreground">Monitor labor costs</p>
+                    <p className="text-xs text-muted-foreground">
+                      Monitor labor costs
+                    </p>
                   </div>
                 </Link>
               </>
@@ -159,7 +178,9 @@ export default async function DashboardPage() {
                   <Calendar className="h-5 w-5 text-blue-600" />
                   <div>
                     <p className="font-medium text-sm">My Shifts</p>
-                    <p className="text-xs text-muted-foreground">View your assigned shifts</p>
+                    <p className="text-xs text-muted-foreground">
+                      View your assigned shifts
+                    </p>
                   </div>
                 </Link>
                 <Link
@@ -169,7 +190,9 @@ export default async function DashboardPage() {
                   <Clock className="h-5 w-5 text-green-600" />
                   <div>
                     <p className="font-medium text-sm">Set Availability</p>
-                    <p className="text-xs text-muted-foreground">Update your schedule preferences</p>
+                    <p className="text-xs text-muted-foreground">
+                      Update your schedule preferences
+                    </p>
                   </div>
                 </Link>
               </>
@@ -181,12 +204,14 @@ export default async function DashboardPage() {
               <ArrowLeftRight className="h-5 w-5 text-purple-600" />
               <div>
                 <p className="font-medium text-sm">Open Shifts</p>
-                <p className="text-xs text-muted-foreground">Available shifts to pick up</p>
+                <p className="text-xs text-muted-foreground">
+                  Available shifts to pick up
+                </p>
               </div>
             </Link>
           </div>
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

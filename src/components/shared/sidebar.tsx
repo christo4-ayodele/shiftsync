@@ -1,33 +1,52 @@
-'use client'
+'use client';
 
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { cn } from '@/lib/utils'
-import { NAV_ITEMS } from '@/lib/utils/constants'
-import type { UserRole } from '@/lib/types/database'
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { cn } from '@/lib/utils';
+import { NAV_ITEMS } from '@/lib/utils/constants';
+import type { UserRole } from '@/lib/types/database';
 import {
-  LayoutDashboard, Calendar, Clock, Users, ArrowLeftRight,
-  HandHelping, AlertTriangle, BarChart3, Radio, FileText,
-  Bell, Settings, X
-} from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
+  LayoutDashboard,
+  Calendar,
+  Clock,
+  Users,
+  ArrowLeftRight,
+  HandHelping,
+  AlertTriangle,
+  BarChart3,
+  Radio,
+  FileText,
+  Bell,
+  Settings,
+  X,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const ICON_MAP: Record<string, React.ElementType> = {
-  LayoutDashboard, Calendar, Clock, Users, ArrowLeftRight,
-  HandHelping, AlertTriangle, BarChart3, Radio, FileText,
-  Bell, Settings,
-}
+  LayoutDashboard,
+  Calendar,
+  Clock,
+  Users,
+  ArrowLeftRight,
+  HandHelping,
+  AlertTriangle,
+  BarChart3,
+  Radio,
+  FileText,
+  Bell,
+  Settings,
+};
 
 interface SidebarProps {
-  role: UserRole
-  open: boolean
-  onClose: () => void
+  role: UserRole;
+  open: boolean;
+  onClose: () => void;
 }
 
 export function Sidebar({ role, open, onClose }: SidebarProps) {
-  const pathname = usePathname()
-  const items = NAV_ITEMS[role] || NAV_ITEMS.staff
+  const pathname = usePathname();
+  const items = NAV_ITEMS[role] || NAV_ITEMS.staff;
 
   return (
     <>
@@ -43,7 +62,7 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
       <aside
         className={cn(
           'fixed inset-y-0 left-0 z-50 w-64 bg-card border-r transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:z-auto',
-          open ? 'translate-x-0' : '-translate-x-full'
+          open ? 'translate-x-0' : '-translate-x-full',
         )}
       >
         {/* Header */}
@@ -68,11 +87,11 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
         <ScrollArea className="flex-1 py-4">
           <nav className="space-y-1 px-3">
             {items.map((item) => {
-              const Icon = ICON_MAP[item.icon] || LayoutDashboard
+              const Icon = ICON_MAP[item.icon] || LayoutDashboard;
               const isActive =
                 item.href === '/dashboard'
                   ? pathname === '/dashboard'
-                  : pathname.startsWith(item.href)
+                  : pathname.startsWith(item.href);
 
               return (
                 <Link
@@ -83,13 +102,13 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
                     'flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors',
                     isActive
                       ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                   )}
                 >
                   <Icon className="h-4 w-4 shrink-0" />
                   {item.label}
                 </Link>
-              )
+              );
             })}
           </nav>
         </ScrollArea>
@@ -102,5 +121,5 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
         </div>
       </aside>
     </>
-  )
+  );
 }

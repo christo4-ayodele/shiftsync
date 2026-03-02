@@ -1,18 +1,18 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { useCurrentUser } from '@/hooks/use-current-user'
-import { useRealtimeNotifications } from '@/hooks/use-realtime-notifications'
-import { Sidebar } from '@/components/shared/sidebar'
-import { Topbar } from '@/components/shared/topbar'
-import { Skeleton } from '@/components/ui/skeleton'
+import { useState } from 'react';
+import { useCurrentUser } from '@/hooks/use-current-user';
+import { useRealtimeNotifications } from '@/hooks/use-realtime-notifications';
+import { Sidebar } from '@/components/shared/sidebar';
+import { Topbar } from '@/components/shared/topbar';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useCurrentUser()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { user, loading } = useCurrentUser();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Set up realtime notifications
-  useRealtimeNotifications(user?.id)
+  useRealtimeNotifications(user?.id);
 
   if (loading) {
     return (
@@ -23,7 +23,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <Skeleton className="h-4 w-1/2" />
         </div>
       </div>
-    )
+    );
   }
 
   if (!user) {
@@ -31,7 +31,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <div className="flex h-screen items-center justify-center">
         <p className="text-muted-foreground">Unable to load user profile.</p>
       </div>
-    )
+    );
   }
 
   return (
@@ -43,10 +43,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar user={user} onMenuClick={() => setSidebarOpen(true)} />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          {children}
-        </main>
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
       </div>
     </div>
-  )
+  );
 }

@@ -1,35 +1,37 @@
-'use client'
+'use client';
 
-import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import type { Profile } from '@/lib/types/database'
+import { useEffect, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import type { Profile } from '@/lib/types/database';
 
 export function useCurrentUser() {
-  const [user, setUser] = useState<Profile | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [user, setUser] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const supabase = createClient()
-    
+    const supabase = createClient();
+
     async function fetchUser() {
-      const { data: { user: authUser } } = await supabase.auth.getUser()
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.getUser();
       if (!authUser) {
-        setLoading(false)
-        return
+        setLoading(false);
+        return;
       }
 
       const { data: profile } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', authUser.id)
-        .single()
+        .single();
 
-      setUser(profile)
-      setLoading(false)
+      setUser(profile);
+      setLoading(false);
     }
 
-    fetchUser()
-  }, [])
+    fetchUser();
+  }, []);
 
-  return { user, loading }
+  return { user, loading };
 }

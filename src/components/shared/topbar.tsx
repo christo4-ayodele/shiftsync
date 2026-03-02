@@ -1,10 +1,10 @@
-'use client'
+'use client';
 
-import { signOut } from '@/lib/actions/auth'
-import { useNotificationStore } from '@/stores/notification-store'
-import type { Profile } from '@/lib/types/database'
-import { Button } from '@/components/ui/button'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { signOut } from '@/lib/actions/auth';
+import { useNotificationStore } from '@/stores/notification-store';
+import type { Profile } from '@/lib/types/database';
+import { Button } from '@/components/ui/button';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,24 +12,24 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { Badge } from '@/components/ui/badge'
-import { Bell, Menu, LogOut, Settings, User } from 'lucide-react'
-import Link from 'next/link'
+} from '@/components/ui/dropdown-menu';
+import { Badge } from '@/components/ui/badge';
+import { Bell, Menu, LogOut, Settings, User } from 'lucide-react';
+import Link from 'next/link';
 
 interface TopbarProps {
-  user: Profile
-  onMenuClick: () => void
+  user: Profile;
+  onMenuClick: () => void;
 }
 
 export function Topbar({ user, onMenuClick }: TopbarProps) {
-  const { unreadCount } = useNotificationStore()
+  const { unreadCount } = useNotificationStore();
 
   const initials = user.full_name
     .split(' ')
     .map((n) => n[0])
     .join('')
-    .toUpperCase()
+    .toUpperCase();
 
   return (
     <header className="sticky top-0 z-30 h-16 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60">
@@ -70,7 +70,9 @@ export function Topbar({ user, onMenuClick }: TopbarProps) {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="gap-2 pl-2">
                 <Avatar className="h-8 w-8">
-                  <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+                  <AvatarFallback className="text-xs">
+                    {initials}
+                  </AvatarFallback>
                 </Avatar>
                 <span className="hidden sm:inline-block text-sm font-medium">
                   {user.full_name}
@@ -103,5 +105,5 @@ export function Topbar({ user, onMenuClick }: TopbarProps) {
         </div>
       </div>
     </header>
-  )
+  );
 }
