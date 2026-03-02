@@ -451,12 +451,12 @@ export async function claimDroppedShift(swapRequestId: string) {
     });
     if (error) return { success: false, message: 'Failed to assign shift.' };
 
-    // Mark the swap request as completed
+    // Mark the swap request as approved (claimed)
     await supabase
       .from('swap_requests')
       .update({
         target_staff_id: user.id,
-        status: 'completed',
+        status: 'approved',
         resolved_at: new Date().toISOString(),
       })
       .eq('id', swapRequestId);
