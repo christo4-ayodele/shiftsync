@@ -573,14 +573,26 @@ export async function assignStaffToShift(
   // Run constraint checks
   const violations = await checkConstraints(staffId, shiftId);
 
-  // Check for hard errors
-  const errors = violations.filter((v) => v.severity === 'error');
-  if (errors.length > 0) {
-    return { success: false, violations: errors };
+  // Separate consecutive day violations (overridable) from hard errors
+  const consecutiveViolations = violations.filter(
+    (v) => v.type === 'consecutive_days',
+  );
+  const hardErrors = violations.filter(
+    (v) => v.severity === 'error' && v.type !== 'consecutive_days',
+  );
+  const warnings = violations.filter((v) => v.severity === 'warning');
+
+  // Hard errors block assignment unconditionally
+  if (hardErrors.length > 0) {
+    return { success: false, violations: hardErrors };
   }
 
-  // Check for warnings (need override)
-  const warnings = violations.filter((v) => v.severity === 'warning');
+  // Consecutive day violations require override reason
+  if (consecutiveViolations.length > 0 && !overrideReason) {
+    return { success: false, violations: consecutiveViolations };
+  }
+
+  // Other warnings require override flag
   if (warnings.length > 0 && !overrideWarnings) {
     return { success: false, violations: warnings };
   }
@@ -634,7 +646,7 @@ export async function assignStaffToShift(
   }
 
   // Handle consecutive day override
-  if (overrideReason && warnings.some((w) => w.type === 'consecutive_days')) {
+  if (overrideReason && consecutiveViolations.length > 0) {
     const shiftData = await supabase
       .from('shifts')
       .select('start_time')

@@ -88,7 +88,9 @@ export default function ShiftsPage() {
   const [candidates, setCandidates] = useState<CoverageCandidate[]>([]);
   const [showAssignDialog, setShowAssignDialog] = useState(false);
   const [assigning, setAssigning] = useState(false);
-  const [overrideReason, setOverrideReason] = useState('');
+  const [overrideReasons, setOverrideReasons] = useState<
+    Record<string, string>
+  >({});
 
   const supabase = createClient();
 
@@ -152,10 +154,19 @@ export default function ShiftsPage() {
   const location = locations.find((l) => l.id === selectedLocation);
   const timezone = location?.timezone || 'America/New_York';
 
+  // Helper to detect consecutive days violations
+  const isConsecutiveDaysViolation = (v: ConstraintViolation) => {
+    return (
+      v.type === 'consecutive_days' ||
+      v.message?.toLowerCase().includes('consecutive day')
+    );
+  };
+
   async function openAssignDialog(shift: any) {
     setSelectedShift(shift);
     setShowAssignDialog(true);
     setCandidates([]);
+    setOverrideReasons({}); // Clear all override reasons
 
     // Fetch coverage candidates
     const result = await findCoverageCandidates(shift.id);
@@ -170,7 +181,7 @@ export default function ShiftsPage() {
       staffId,
       selectedShift.id,
       hasWarnings,
-      overrideReason || undefined,
+      overrideReasons[staffId] || undefined,
     );
 
     setAssigning(false);
@@ -186,7 +197,7 @@ export default function ShiftsPage() {
 
     toast.success('Staff assigned successfully');
     setShowAssignDialog(false);
-    setOverrideReason('');
+    setOverrideReasons({});
     fetchShifts();
   }
 
@@ -391,7 +402,28 @@ export default function ShiftsPage() {
                   const warnings = candidate.violations.filter(
                     (v) => v.severity === 'warning',
                   );
-                  const isEligible = errors.length === 0;
+
+                  // Check if there are consecutive day violations (can be error or warning)
+                  const hasConsecutiveViolation = [...errors, ...warnings].some(
+                    isConsecutiveDaysViolation,
+                  );
+
+                  // Hard blockers are errors that are NOT consecutive day violations
+                  const hardErrors = errors.filter(
+                    (v) => !isConsecutiveDaysViolation(v),
+                  );
+
+                  // Get this candidate's override reason
+                  const candidateOverrideReason =
+                    overrideReasons[candidate.profile.id] || '';
+
+                  // Can assign if: no hard errors AND (no consecutive violation OR has override reason)
+                  const hasValidOverride =
+                    candidateOverrideReason.trim().length >= 5;
+                  const isEligible = hardErrors.length === 0;
+                  const canAssign =
+                    isEligible &&
+                    (!hasConsecutiveViolation || hasValidOverride);
 
                   return (
                     <div
@@ -430,23 +462,31 @@ export default function ShiftsPage() {
                         </div>
                         <Button
                           size="sm"
-                          disabled={!isEligible || assigning}
-                          variant={warnings.length > 0 ? 'outline' : 'default'}
+                          disabled={!canAssign || assigning}
+                          variant={
+                            hasConsecutiveViolation || warnings.length > 0
+                              ? 'outline'
+                              : 'default'
+                          }
                           onClick={() =>
                             handleAssign(
                               candidate.profile.id,
-                              warnings.length > 0,
+                              warnings.length > 0 || hasConsecutiveViolation,
                             )
                           }
                         >
-                          {warnings.length > 0 ? 'Assign (Override)' : 'Assign'}
+                          {hasConsecutiveViolation
+                            ? 'Assign (Manager Override)'
+                            : warnings.length > 0
+                              ? 'Assign (Override)'
+                              : 'Assign'}
                         </Button>
                       </div>
 
                       {/* Violations */}
-                      {errors.length > 0 && (
+                      {hardErrors.length > 0 && (
                         <div className="space-y-1">
-                          {errors.map((v, i) => (
+                          {hardErrors.map((v, i) => (
                             <div
                               key={i}
                               className="flex items-start gap-1.5 text-xs text-destructive"
@@ -457,34 +497,55 @@ export default function ShiftsPage() {
                           ))}
                         </div>
                       )}
-                      {warnings.length > 0 && (
+
+                      {/* Consecutive day violations (show as warnings even if error severity) */}
+                      {hasConsecutiveViolation && (
                         <div className="space-y-1">
-                          {warnings.map((v, i) => (
-                            <div
-                              key={i}
-                              className="flex items-start gap-1.5 text-xs text-orange-600"
-                            >
-                              <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
-                              <span>{v.message}</span>
-                            </div>
-                          ))}
-                          {warnings.some(
-                            (w) => w.type === 'consecutive_days',
-                          ) && (
-                            <div className="mt-1">
-                              <Label className="text-xs">
-                                Override Reason (required):
-                              </Label>
-                              <Input
-                                className="text-xs h-7 mt-1"
-                                placeholder="Reason for consecutive day override..."
-                                value={overrideReason}
-                                onChange={(e) =>
-                                  setOverrideReason(e.target.value)
-                                }
-                              />
-                            </div>
-                          )}
+                          {[...errors, ...warnings]
+                            .filter(isConsecutiveDaysViolation)
+                            .map((v, i) => (
+                              <div
+                                key={i}
+                                className="flex items-start gap-1.5 text-xs text-orange-600"
+                              >
+                                <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                                <span>{v.message}</span>
+                              </div>
+                            ))}
+                          <div className="mt-1">
+                            <Label className="text-xs">
+                              Override Reason (required):
+                            </Label>
+                            <Input
+                              className="text-xs h-7 mt-1"
+                              placeholder="Reason for consecutive day override..."
+                              value={candidateOverrideReason}
+                              onChange={(e) =>
+                                setOverrideReasons((prev) => ({
+                                  ...prev,
+                                  [candidate.profile.id]: e.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Other warnings (non-consecutive) */}
+                      {warnings.filter((v) => !isConsecutiveDaysViolation(v))
+                        .length > 0 && (
+                        <div className="space-y-1">
+                          {warnings
+                            .filter((v) => !isConsecutiveDaysViolation(v))
+                            .map((v, i) => (
+                              <div
+                                key={i}
+                                className="flex items-start gap-1.5 text-xs text-orange-600"
+                              >
+                                <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                                <span>{v.message}</span>
+                              </div>
+                            ))}
                         </div>
                       )}
                     </div>
