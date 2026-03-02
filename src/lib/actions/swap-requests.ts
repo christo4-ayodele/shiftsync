@@ -425,14 +425,63 @@ export async function claimDroppedShift(swapRequestId: string) {
     .single();
 
   if (!request) throw new Error('Request not found');
-  if (request.type !== 'drop' || request.status !== 'pending_manager') {
+  if (
+    request.type !== 'drop' ||
+    !['pending_manager', 'approved'].includes(request.status)
+  ) {
     return {
       success: false,
       message: 'This shift is not available for pickup.',
     };
   }
 
-  // Update request with the claiming staff member
+  const shiftData = request.requesting_assignment as any;
+
+  // If the drop is already approved by a manager, directly assign the shift
+  if (request.status === 'approved') {
+    const shiftId = shiftData?.shift?.id;
+    if (!shiftId) return { success: false, message: 'Shift data not found.' };
+
+    // Assign the claiming staff to the shift
+    const { error } = await supabase.from('shift_assignments').insert({
+      shift_id: shiftId,
+      staff_id: user.id,
+      status: 'assigned',
+      assigned_by: user.id,
+    });
+    if (error) return { success: false, message: 'Failed to assign shift.' };
+
+    // Mark the swap request as completed
+    await supabase
+      .from('swap_requests')
+      .update({
+        target_staff_id: user.id,
+        status: 'completed',
+        resolved_at: new Date().toISOString(),
+      })
+      .eq('id', swapRequestId);
+
+    // Notify the original staff member
+    await supabase.from('notifications').insert({
+      user_id: shiftData.staff_id,
+      type: 'drop_approved',
+      title: 'Your Dropped Shift Was Claimed',
+      message: 'Another staff member has picked up your dropped shift.',
+      link: '/dashboard/my-shifts',
+      is_read: false,
+      delivery_method: 'in_app',
+    });
+
+    revalidatePath('/dashboard/swap-requests');
+    revalidatePath('/dashboard/open-shifts');
+    revalidatePath('/dashboard/my-shifts');
+    return {
+      success: true,
+      message: 'Shift assigned to you directly. Check My Shifts!',
+    };
+  }
+
+  // Pending drop: set target_staff_id and notify managers for approval
   await supabase
     .from('swap_requests')
     .update({
@@ -441,7 +490,6 @@ export async function claimDroppedShift(swapRequestId: string) {
     .eq('id', swapRequestId);
 
   // Notify managers
-  const shiftData = request.requesting_assignment as any;
   if (shiftData?.shift?.location_id) {
     const { data: managers } = await supabase
       .from('manager_locations')
@@ -465,5 +513,5 @@ export async function claimDroppedShift(swapRequestId: string) {
 
   revalidatePath('/dashboard/swap-requests');
   revalidatePath('/dashboard/open-shifts');
-  return { success: true };
+  return { success: true, message: 'Shift claimed! Pending manager approval.' };
 }

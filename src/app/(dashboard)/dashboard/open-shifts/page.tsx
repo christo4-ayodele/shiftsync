@@ -32,7 +32,9 @@ export default function OpenShiftsPage() {
 
   useEffect(() => {
     async function load() {
-      // Fetch swap requests of type 'drop' in pending_manager status (open for claims)
+      // Fetch drop requests open for claiming:
+      // - pending_manager: claim will be sent to manager for approval
+      // - approved: manager already approved the drop but no one has claimed it yet (direct claim)
       const { data } = await supabase
         .from('swap_requests')
         .select(
@@ -46,10 +48,11 @@ export default function OpenShiftsPage() {
         `,
         )
         .eq('type', 'drop')
-        .eq('status', 'pending_manager')
+        .in('status', ['pending_manager', 'approved'])
+        .is('target_staff_id', null)
         .order('created_at', { ascending: false });
 
-      // Filter to only those where expires_at is in the future
+      // Filter to only those where expires_at is in the future (or no expiry set)
       const now = new Date();
       const open = (data || []).filter((r) => {
         if (!r.expires_at) return true;
@@ -71,7 +74,7 @@ export default function OpenShiftsPage() {
       toast.error(result?.message || 'Failed to claim shift');
       return;
     }
-    toast.success('Shift claimed! Pending manager approval.');
+    toast.success(result.message || 'Shift claimed! Pending manager approval.');
     setOpenShifts((o) => o.filter((s) => s.id !== requestId));
   }
 
@@ -133,6 +136,14 @@ export default function OpenShiftsPage() {
                         <Badge variant="secondary" className="text-xs">
                           {duration}h
                         </Badge>
+                        {req.status === 'approved' && (
+                          <Badge
+                            variant="outline"
+                            className="text-xs text-green-600 border-green-600"
+                          >
+                            Pre-approved
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">

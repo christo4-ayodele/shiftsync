@@ -10,7 +10,14 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { addDays, startOfWeek, format, setHours, setMinutes } from 'date-fns';
+import {
+  addDays,
+  startOfWeek,
+  format,
+  setHours,
+  setMinutes,
+  differenceInHours,
+} from 'date-fns';
 import { config } from 'dotenv';
 
 // Load .env.local when running standalone
@@ -358,13 +365,14 @@ async function seed() {
   await supabase.from('availability').insert(availEntries);
 
   // ============================================
-  // 8. Create schedules + shifts for current & next week
+  // 8. Create schedules + shifts for LAST week only
+  //    (Feb 23 – Mar 1, 2026). Current week is a clean slate.
   // ============================================
   console.log('📋 Creating schedules and shifts...');
 
-  const thisMonday = startOfWeek(new Date(), { weekStartsOn: 1 });
-  const nextMonday = addDays(thisMonday, 7);
-  const weeks = [thisMonday, nextMonday];
+  const thisMonday = startOfWeek(new Date(), { weekStartsOn: 1 }); // Mar 2
+  const lastMonday = addDays(thisMonday, -7); // Feb 23
+  const weeks = [lastMonday]; // only seed last week
   const locationIds = Object.values(LOCATION_IDS);
 
   const scheduleIds: Record<string, string> = {};
@@ -372,17 +380,15 @@ async function seed() {
   for (const weekStart of weeks) {
     for (const locId of locationIds) {
       const weekStr = format(weekStart, 'yyyy-MM-dd');
-      const isCurrentWeek = weekStart === thisMonday;
-
       const { data: schedule, error } = await supabase
         .from('schedules')
         .upsert(
           {
             location_id: locId,
             week_start: weekStr,
-            status: isCurrentWeek ? 'published' : 'draft',
-            published_at: isCurrentWeek ? new Date().toISOString() : null,
-            published_by: isCurrentWeek ? adminId : null,
+            status: 'published',
+            published_at: new Date().toISOString(),
+            published_by: adminId,
           },
           { onConflict: 'location_id,week_start' },
         )
@@ -466,76 +472,155 @@ async function seed() {
 
   // ============================================
   // 9. Assign staff to current week shifts
+  //    (constraint-based: skills, location certs,
+  //     hours cap, 12h rest, 1 shift/day, days off)
   // ============================================
   console.log('👥 Assigning staff to shifts...');
 
-  // Get current week shifts with location info
+  // --- Build eligibility maps from what we just inserted ---
+  const staffSkillsMap = new Map<string, Set<string>>();
+  const staffLocationsMap = new Map<string, Set<string>>();
+
+  for (const sa of skillAssignments) {
+    if (!staffSkillsMap.has(sa.staff_id))
+      staffSkillsMap.set(sa.staff_id, new Set());
+    staffSkillsMap.get(sa.staff_id)!.add(sa.skill_id);
+  }
+  for (const lc of locationCerts) {
+    if (!staffLocationsMap.has(lc.staff_id))
+      staffLocationsMap.set(lc.staff_id, new Set());
+    staffLocationsMap.get(lc.staff_id)!.add(lc.location_id);
+  }
+
+  // --- Fetch last-week shifts in chronological order ---
   const { data: currentShifts } = await supabase
     .from('shifts')
     .select('*, location:locations(*), schedule:schedules(*)')
-    .gte('start_time', format(thisMonday, 'yyyy-MM-dd'))
-    .lt('start_time', format(nextMonday, 'yyyy-MM-dd'))
+    .gte('start_time', format(lastMonday, 'yyyy-MM-dd'))
+    .lt('start_time', format(thisMonday, 'yyyy-MM-dd'))
     .order('start_time');
 
-  // Map staff to locations
-  const staffByLocation: Record<string, string[]> = {
-    [LOCATION_IDS.downtown]: [
-      staffIds[0],
-      staffIds[1],
-      staffIds[2],
-      staffIds[6],
-      staffIds[7],
-      staffIds[8],
-      staffIds[9],
-    ],
-    [LOCATION_IDS.harbor]: [
-      staffIds[3],
-      staffIds[4],
-      staffIds[5],
-      staffIds[6],
-      staffIds[7],
-      staffIds[8],
-      staffIds[9],
-    ],
-    [LOCATION_IDS.folly]: [
-      staffIds[0],
-      staffIds[1],
-      staffIds[2],
-      staffIds[8],
-      staffIds[9],
-    ],
-    [LOCATION_IDS.airport]: [
-      staffIds[3],
-      staffIds[4],
-      staffIds[5],
-      staffIds[8],
-      staffIds[9],
-    ],
-  };
+  // --- Per-staff tracking ---
+  const hoursThisWeek: Record<string, number> = {};
+  const assignedDates: Record<string, Set<string>> = {};
+  const lastShiftEnd: Record<string, Date> = {};
+  const daysOff: Record<string, Set<number>> = {};
 
+  // Deterministic but varied hours cap:
+  // Allow 2 specific staff to go up to 45h (overtime testers),
+  // everyone else is hard-capped at 40h.
+  const overtimeTesters = new Set([staffIds[5], staffIds[6]]); // Olivia & Noah
+  const hoursCap = (sid: string) => (overtimeTesters.has(sid) ? 45 : 40);
+
+  // Assign 1-2 days off per staff, spread across the week
+  for (let i = 0; i < staffIds.length; i++) {
+    const sid = staffIds[i];
+    hoursThisWeek[sid] = 0;
+    assignedDates[sid] = new Set();
+    daysOff[sid] = new Set();
+
+    // Primary day off — rotate through the week
+    const primaryOff = i % 7; // 0=Mon ... 6=Sun
+    daysOff[sid].add(primaryOff);
+
+    // ~half the staff get a second day off (adjacent day)
+    if (i % 3 !== 0) {
+      const secondOff = (primaryOff + (i % 2 === 0 ? 1 : 6)) % 7;
+      daysOff[sid].add(secondOff);
+    }
+  }
+
+  // --- Seeded PRNG for reproducible "random" tie-breaking ---
+  let prngState = 42;
+  function nextRandom(): number {
+    prngState = (prngState * 1664525 + 1013904223) & 0x7fffffff;
+    return prngState / 0x7fffffff;
+  }
+
+  // --- Assignment loop ---
   let assignmentCount = 0;
-  const assignedPairs = new Set<string>(); // prevent duplicate shift-staff pairs
+  let unfilledSlots = 0;
 
   for (const shift of currentShifts || []) {
-    const eligible = staffByLocation[shift.location_id] || [];
-    const needed = shift.headcount_needed;
+    const shiftStart = new Date(shift.start_time);
+    const shiftEnd = new Date(shift.end_time);
+    const shiftHours = differenceInHours(shiftEnd, shiftStart);
+    const shiftDateStr = format(shiftStart, 'yyyy-MM-dd');
+    const shiftDayOfWeek = (shiftStart.getDay() + 6) % 7; // 0=Mon
 
-    for (let h = 0; h < needed && h < eligible.length; h++) {
-      const staffId = eligible[(assignmentCount + h) % eligible.length];
-      const pairKey = `${shift.id}-${staffId}`;
-      if (assignedPairs.has(pairKey)) continue;
-      assignedPairs.add(pairKey);
+    // Build eligible list
+    const eligible = staffIds.filter((sid) => {
+      // 1. Location certification
+      if (!staffLocationsMap.get(sid)?.has(shift.location_id)) return false;
+      // 2. Required skill
+      if (
+        shift.required_skill_id &&
+        !staffSkillsMap.get(sid)?.has(shift.required_skill_id)
+      )
+        return false;
+      // 3. Max 1 shift per day
+      if (assignedDates[sid]?.has(shiftDateStr)) return false;
+      // 4. Day off
+      if (daysOff[sid]?.has(shiftDayOfWeek)) return false;
+      // 5. Hours cap
+      if ((hoursThisWeek[sid] || 0) + shiftHours > hoursCap(sid)) return false;
+      // 6. 12-hour rest between shifts
+      if (lastShiftEnd[sid]) {
+        const restHours = differenceInHours(shiftStart, lastShiftEnd[sid]);
+        if (restHours < 12) return false;
+      }
+      return true;
+    });
+
+    // Sort: fewest hours first, then random tie-break
+    eligible.sort((a, b) => {
+      const diff = (hoursThisWeek[a] || 0) - (hoursThisWeek[b] || 0);
+      if (diff !== 0) return diff;
+      return nextRandom() - 0.5;
+    });
+
+    const needed = shift.headcount_needed;
+    let filled = 0;
+
+    for (let h = 0; h < Math.min(needed, eligible.length); h++) {
+      const sid = eligible[h];
 
       const { error } = await supabase.from('shift_assignments').insert({
         shift_id: shift.id,
-        staff_id: staffId,
+        staff_id: sid,
         status: 'assigned',
         assigned_by: adminId,
       });
-      if (!error) assignmentCount++;
+
+      if (!error) {
+        hoursThisWeek[sid] = (hoursThisWeek[sid] || 0) + shiftHours;
+        assignedDates[sid]!.add(shiftDateStr);
+        lastShiftEnd[sid] = shiftEnd;
+        assignmentCount++;
+        filled++;
+      }
+    }
+
+    if (filled < needed) {
+      unfilledSlots += needed - filled;
     }
   }
-  console.log(`  Created ${assignmentCount} assignments`);
+
+  // --- Summary table ---
+  console.log(
+    `  Created ${assignmentCount} assignments (${unfilledSlots} slots unfilled)`,
+  );
+  console.log('\n  ┌─────────────────────────┬────────┬───────┐');
+  console.log('  │ Staff                   │ Shifts │ Hours │');
+  console.log('  ├─────────────────────────┼────────┼───────┤');
+  for (let i = 0; i < staffIds.length; i++) {
+    const sid = staffIds[i];
+    const name = USERS[i + 3].name.padEnd(23); // offset by 3 (admin + 2 mgrs)
+    const shifts = (assignedDates[sid]?.size || 0).toString().padStart(6);
+    const hours = (hoursThisWeek[sid] || 0).toString().padStart(5);
+    console.log(`  │ ${name} │ ${shifts} │ ${hours} │`);
+  }
+  console.log('  └─────────────────────────┴────────┴───────┘');
 
   // ============================================
   // 10. Create a sample swap request

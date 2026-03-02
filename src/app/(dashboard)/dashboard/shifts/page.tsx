@@ -94,6 +94,14 @@ export default function ShiftsPage() {
 
   const supabase = createClient();
 
+  // Close dialog on unmount so its Radix portal overlay is never orphaned
+  // if the user navigates away while the dialog is open or animating closed.
+  useEffect(() => {
+    return () => {
+      setShowAssignDialog(false);
+    };
+  }, []);
+
   useEffect(() => {
     async function fetchLocations() {
       if (!user) return;

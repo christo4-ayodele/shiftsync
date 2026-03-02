@@ -84,7 +84,7 @@ export default function LoginPage() {
           <p>Manager: sarah.manager@coastaleats.com</p>
           <p>Staff: james.staff@coastaleats.com</p>
           <p className="text-muted-foreground/70">
-            Password for all: shiftsync123
+            Password for all:password123
           </p>
         </div>
       </CardContent>
