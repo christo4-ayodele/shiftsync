@@ -18,6 +18,7 @@ import {
 import { format, parseISO, differenceInHours } from 'date-fns';
 import {
   formatTimeInTimezone,
+  formatInTimezone,
   getShiftDurationHours,
 } from '@/lib/utils/timezone';
 import { SKILL_COLORS } from '@/lib/utils/constants';
@@ -128,7 +129,11 @@ export default function OpenShiftsPage() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <Calendar className="h-4 w-4" />
                         <span className="font-semibold">
-                          {format(parseISO(shift.start_time), 'EEEE, MMM d')}
+                          {formatInTimezone(
+                            shift.start_time,
+                            tz,
+                            'EEEE, MMM d',
+                          )}
                         </span>
                         <Badge className={`text-xs ${skillColor}`}>
                           {skill}

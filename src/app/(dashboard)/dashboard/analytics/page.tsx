@@ -50,7 +50,11 @@ import {
   BarChart3,
   PieChart as PieIcon,
   TrendingUp,
+  Star,
+  Target,
+  Scale,
 } from 'lucide-react';
+import { isPremiumShift } from '@/lib/utils/timezone';
 import type { Location } from '@/lib/types/database';
 
 const COLORS = [
@@ -74,6 +78,14 @@ export default function AnalyticsPage() {
   const [hoursData, setHoursData] = useState<any[]>([]);
   const [skillData, setSkillData] = useState<any[]>([]);
   const [weeklyTrendData, setWeeklyTrendData] = useState<any[]>([]);
+  const [premiumData, setPremiumData] = useState<any[]>([]);
+  const [fairnessMetrics, setFairnessMetrics] = useState<{
+    score: number;
+    stddev: number;
+    mean: number;
+    cv: number;
+  } | null>(null);
+  const [desiredVsActualData, setDesiredVsActualData] = useState<any[]>([]);
 
   useEffect(() => {
     async function fetchLocations() {
@@ -131,6 +143,8 @@ export default function AnalyticsPage() {
     const staffHoursMap = new Map<string, number>();
     const skillMap = new Map<string, number>();
     const weekMap = new Map<string, number>();
+    const premiumMap = new Map<string, { premium: number; regular: number }>();
+    const desiredMap = new Map<string, { desired: number; actual: number }>();
 
     for (const a of filtered) {
       if (!a.shift || !a.profile) continue;
@@ -149,6 +163,24 @@ export default function AnalyticsPage() {
         'MMM d',
       );
       weekMap.set(week, (weekMap.get(week) || 0) + hours);
+
+      // Premium shift tracking (Fri/Sat evening)
+      const tz = a.shift.location?.timezone || 'America/New_York';
+      const premium = isPremiumShift(a.shift.start_time, tz);
+      if (!premiumMap.has(name))
+        premiumMap.set(name, { premium: 0, regular: 0 });
+      const pc = premiumMap.get(name)!;
+      if (premium) pc.premium++;
+      else pc.regular++;
+
+      // Desired vs actual hours
+      if (!desiredMap.has(name)) {
+        desiredMap.set(name, {
+          desired: a.profile.desired_weekly_hours || 40,
+          actual: 0,
+        });
+      }
+      desiredMap.get(name)!.actual += hours;
     }
 
     setHoursData(
@@ -169,6 +201,44 @@ export default function AnalyticsPage() {
         week,
         hours: Math.round(hours * 10) / 10,
       })),
+    );
+
+    // Fairness metrics (coefficient of variation)
+    const allHours = Array.from(staffHoursMap.values());
+    if (allHours.length > 1) {
+      const mean = allHours.reduce((s, h) => s + h, 0) / allHours.length;
+      const variance =
+        allHours.reduce((s, h) => s + (h - mean) ** 2, 0) / allHours.length;
+      const stddev = Math.sqrt(variance);
+      const cv = mean > 0 ? stddev / mean : 0;
+      const score = Math.max(0, Math.round(100 * (1 - cv)));
+      setFairnessMetrics({
+        score,
+        stddev: Math.round(stddev * 10) / 10,
+        mean: Math.round(mean * 10) / 10,
+        cv: Math.round(cv * 100) / 100,
+      });
+    } else {
+      setFairnessMetrics(null);
+    }
+
+    // Premium shift data
+    setPremiumData(
+      Array.from(premiumMap.entries())
+        .map(([name, { premium, regular }]) => ({ name, premium, regular }))
+        .sort((a, b) => b.premium - a.premium),
+    );
+
+    // Desired vs actual (per-week average)
+    setDesiredVsActualData(
+      Array.from(desiredMap.entries())
+        .map(([name, { desired, actual }]) => ({
+          name,
+          desired: Math.round(desired * 10) / 10,
+          actual: Math.round((actual / weeksBack) * 10) / 10,
+          diff: Math.round((actual / weeksBack - desired) * 10) / 10,
+        }))
+        .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff)),
     );
 
     setLoading(false);
@@ -234,6 +304,91 @@ export default function AnalyticsPage() {
         </div>
       ) : (
         <div className="space-y-6">
+          {/* Fairness Summary Cards */}
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <Scale className="h-5 w-5 text-blue-500" />
+                  <div className="flex-1">
+                    <p className="text-sm text-muted-foreground">
+                      Fairness Score
+                    </p>
+                    {fairnessMetrics ? (
+                      <>
+                        <p className="text-2xl font-bold">
+                          <span
+                            className={
+                              fairnessMetrics.score >= 80
+                                ? 'text-green-600'
+                                : fairnessMetrics.score >= 60
+                                  ? 'text-orange-600'
+                                  : 'text-red-600'
+                            }
+                          >
+                            {fairnessMetrics.score}%
+                          </span>
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          \u03c3 = {fairnessMetrics.stddev}h · \u03bc ={' '}
+                          {fairnessMetrics.mean}h
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Need 2+ staff
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <Star className="h-5 w-5 text-amber-500" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">
+                      Premium Shifts
+                    </p>
+                    <p className="text-2xl font-bold">
+                      {premiumData.reduce((s, d) => s + d.premium, 0)}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      Fri/Sat evening shifts
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <Target className="h-5 w-5 text-purple-500" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">
+                      Avg Hours Gap
+                    </p>
+                    <p className="text-2xl font-bold">
+                      {desiredVsActualData.length > 0
+                        ? (
+                            desiredVsActualData.reduce(
+                              (s, d) => s + Math.abs(d.diff),
+                              0,
+                            ) / desiredVsActualData.length
+                          ).toFixed(1)
+                        : '0'}
+                      h
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      Desired vs actual/wk
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
           {/* Hours Distribution (Fairness) */}
           <Card>
             <CardHeader>
@@ -383,6 +538,149 @@ export default function AnalyticsPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Desired vs Actual Hours */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Target className="h-5 w-5" />
+                <CardTitle className="text-lg">
+                  Desired vs Actual Hours
+                </CardTitle>
+              </div>
+              <CardDescription>
+                Average weekly hours compared to each staff member{"'"}s desired
+                hours
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {desiredVsActualData.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">
+                  No data available
+                </p>
+              ) : (
+                <>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart
+                      data={desiredVsActualData}
+                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis
+                        dataKey="name"
+                        angle={-30}
+                        textAnchor="end"
+                        height={80}
+                        fontSize={12}
+                      />
+                      <YAxis
+                        label={{
+                          value: 'Hours/wk',
+                          angle: -90,
+                          position: 'insideLeft',
+                        }}
+                      />
+                      <Tooltip />
+                      <Legend />
+                      <Bar
+                        dataKey="desired"
+                        fill="#8b5cf6"
+                        name="Desired"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="actual"
+                        fill="#3b82f6"
+                        name="Actual Avg"
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    {desiredVsActualData.map((d) => (
+                      <Badge
+                        key={d.name}
+                        variant="outline"
+                        className={`text-xs ${
+                          d.diff > 5
+                            ? 'text-red-600 border-red-300'
+                            : d.diff < -5
+                              ? 'text-orange-600 border-orange-300'
+                              : 'text-green-600 border-green-300'
+                        }`}
+                      >
+                        {d.name}: {d.diff > 0 ? '+' : ''}
+                        {d.diff}h/wk
+                      </Badge>
+                    ))}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Premium Shift Distribution */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Star className="h-5 w-5 text-amber-500" />
+                <CardTitle className="text-lg">
+                  Premium Shift Distribution
+                </CardTitle>
+              </div>
+              <CardDescription>
+                Fri/Sat evening shifts per staff — track fair distribution of
+                premium hours
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {premiumData.length === 0 ||
+              premiumData.every((d) => d.premium === 0) ? (
+                <p className="text-center text-muted-foreground py-8">
+                  No premium shifts in this period
+                </p>
+              ) : (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart
+                    data={premiumData}
+                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="name"
+                      angle={-30}
+                      textAnchor="end"
+                      height={80}
+                      fontSize={12}
+                    />
+                    <YAxis
+                      label={{
+                        value: 'Shifts',
+                        angle: -90,
+                        position: 'insideLeft',
+                      }}
+                    />
+                    <Tooltip />
+                    <Legend />
+                    <Bar
+                      dataKey="premium"
+                      fill="#f59e0b"
+                      name="Premium"
+                      stackId="a"
+                      radius={[4, 4, 0, 0]}
+                    />
+                    <Bar
+                      dataKey="regular"
+                      fill="#94a3b8"
+                      name="Regular"
+                      stackId="a"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

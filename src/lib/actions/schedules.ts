@@ -2,6 +2,8 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
+import { parseISO, differenceInHours } from 'date-fns';
+import { DEFAULT_EDIT_CUTOFF_HOURS } from '@/lib/utils/constants';
 
 export async function getSchedules(locationId: string, weekStart?: string) {
   const supabase = await createClient();
@@ -124,6 +126,35 @@ export async function unpublishSchedule(scheduleId: string) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
+
+  // Enforce edit cutoff: block unpublish if any shift starts within cutoff window
+  const { data: schedule } = await supabase
+    .from('schedules')
+    .select('edit_cutoff_hours')
+    .eq('id', scheduleId)
+    .single();
+
+  const cutoffHours =
+    (schedule as any)?.edit_cutoff_hours ?? DEFAULT_EDIT_CUTOFF_HOURS;
+
+  const { data: shifts } = await supabase
+    .from('shifts')
+    .select('start_time')
+    .eq('schedule_id', scheduleId);
+
+  if (shifts && shifts.length > 0) {
+    const now = new Date();
+    const tooClose = shifts.find((s) => {
+      const hoursUntil = differenceInHours(parseISO(s.start_time), now);
+      return hoursUntil < cutoffHours && hoursUntil >= 0;
+    });
+    if (tooClose) {
+      const hoursUntil = differenceInHours(parseISO(tooClose.start_time), now);
+      throw new Error(
+        `Cannot unpublish: a shift starts in ${hoursUntil}h, which is within the ${cutoffHours}h edit cutoff.`,
+      );
+    }
+  }
 
   const { error } = await supabase
     .from('schedules')

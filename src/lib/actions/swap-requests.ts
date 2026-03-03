@@ -8,6 +8,7 @@ import {
   DROP_REQUEST_EXPIRE_HOURS_BEFORE_SHIFT,
 } from '@/lib/utils/constants';
 import { parseISO, subHours } from 'date-fns';
+import { checkConstraints } from '@/lib/actions/shifts';
 
 export async function getSwapRequests(filter?: 'pending' | 'all') {
   const supabase = await createClient();
@@ -49,6 +50,29 @@ export async function getSwapRequests(filter?: 'pending' | 'all') {
 
   const { data, error } = await query;
   if (error) throw error;
+
+  // Auto-expire any drop requests past their expiry
+  const now = new Date();
+  const expired = (data || []).filter(
+    (r) =>
+      r.type === 'drop' &&
+      r.expires_at &&
+      parseISO(r.expires_at) <= now &&
+      ['pending_peer', 'pending_manager'].includes(r.status),
+  );
+  if (expired.length > 0) {
+    await supabase
+      .from('swap_requests')
+      .update({ status: 'cancelled', resolved_at: now.toISOString() })
+      .in(
+        'id',
+        expired.map((e) => e.id),
+      );
+    // Remove expired from returned data
+    const expiredIds = new Set(expired.map((e) => e.id));
+    return (data || []).filter((r) => !expiredIds.has(r.id));
+  }
+
   return data || [];
 }
 
@@ -232,6 +256,22 @@ export async function approveSwapRequest(swapRequestId: string) {
   const reqAssignment = request.requesting_assignment as any;
 
   if (request.type === 'swap' && request.target_staff_id) {
+    // Run constraint checks on the target staff for the shift being swapped
+    const violations = await checkConstraints(
+      request.target_staff_id,
+      reqAssignment.shift_id,
+    );
+    const hardErrors = violations.filter(
+      (v) => v.severity === 'error' && v.type !== 'consecutive_days',
+    );
+    if (hardErrors.length > 0) {
+      return {
+        success: false,
+        message: `Cannot approve swap: ${hardErrors.map((v) => v.message).join('; ')}`,
+        violations: hardErrors,
+      };
+    }
+
     // Swap: reassign the shift from requester to target
     await supabase
       .from('shift_assignments')
@@ -425,6 +465,20 @@ export async function claimDroppedShift(swapRequestId: string) {
     .single();
 
   if (!request) throw new Error('Request not found');
+
+  // Check expiry
+  if (request.expires_at && parseISO(request.expires_at) <= new Date()) {
+    // Auto-expire
+    await supabase
+      .from('swap_requests')
+      .update({ status: 'cancelled', resolved_at: new Date().toISOString() })
+      .eq('id', swapRequestId);
+    return {
+      success: false,
+      message: 'This drop request has expired and is no longer available.',
+    };
+  }
+
   if (
     request.type !== 'drop' ||
     !['pending_manager', 'approved'].includes(request.status)

@@ -264,33 +264,48 @@ async function seed() {
   // 5. Staff skills
   // ============================================
   console.log('⭐ Assigning staff skills...');
-  const skillAssignments = [
-    // Each staff gets 2-4 skills
-    { staff_id: staffIds[0], skill_id: SKILL_IDS.grill },
-    { staff_id: staffIds[0], skill_id: SKILL_IDS.saute },
-    { staff_id: staffIds[0], skill_id: SKILL_IDS.prep },
-    { staff_id: staffIds[1], skill_id: SKILL_IDS.foh },
-    { staff_id: staffIds[1], skill_id: SKILL_IDS.bar },
-    { staff_id: staffIds[1], skill_id: SKILL_IDS.expo },
-    { staff_id: staffIds[2], skill_id: SKILL_IDS.grill },
-    { staff_id: staffIds[2], skill_id: SKILL_IDS.prep },
-    { staff_id: staffIds[3], skill_id: SKILL_IDS.foh },
-    { staff_id: staffIds[3], skill_id: SKILL_IDS.bar },
-    { staff_id: staffIds[4], skill_id: SKILL_IDS.saute },
-    { staff_id: staffIds[4], skill_id: SKILL_IDS.grill },
-    { staff_id: staffIds[4], skill_id: SKILL_IDS.expo },
-    { staff_id: staffIds[5], skill_id: SKILL_IDS.foh },
-    { staff_id: staffIds[5], skill_id: SKILL_IDS.prep },
-    { staff_id: staffIds[6], skill_id: SKILL_IDS.bar },
-    { staff_id: staffIds[6], skill_id: SKILL_IDS.saute },
-    { staff_id: staffIds[7], skill_id: SKILL_IDS.grill },
-    { staff_id: staffIds[7], skill_id: SKILL_IDS.foh },
-    { staff_id: staffIds[8], skill_id: SKILL_IDS.prep },
-    { staff_id: staffIds[8], skill_id: SKILL_IDS.expo },
-    { staff_id: staffIds[9], skill_id: SKILL_IDS.foh },
-    { staff_id: staffIds[9], skill_id: SKILL_IDS.bar },
-    { staff_id: staffIds[9], skill_id: SKILL_IDS.grill },
+  // Each staff gets 4-5 skills so they can cover most shift types
+  const allSkillIds = Object.values(SKILL_IDS);
+  const skillAssignments: { staff_id: string; skill_id: string }[] = [];
+  const staffSkillSets: string[][] = [
+    // staff 0 - Marcus:  grill, saute, prep, foh
+    [SKILL_IDS.grill, SKILL_IDS.saute, SKILL_IDS.prep, SKILL_IDS.foh],
+    // staff 1 - Sofia:   foh, bar, expo, prep
+    [SKILL_IDS.foh, SKILL_IDS.bar, SKILL_IDS.expo, SKILL_IDS.prep],
+    // staff 2 - Tyler:   grill, prep, saute, expo
+    [SKILL_IDS.grill, SKILL_IDS.prep, SKILL_IDS.saute, SKILL_IDS.expo],
+    // staff 3 - Emma:    foh, bar, grill, prep
+    [SKILL_IDS.foh, SKILL_IDS.bar, SKILL_IDS.grill, SKILL_IDS.prep],
+    // staff 4 - Liam:    saute, grill, expo, bar
+    [SKILL_IDS.saute, SKILL_IDS.grill, SKILL_IDS.expo, SKILL_IDS.bar],
+    // staff 5 - Olivia:  foh, prep, bar, saute, expo (5 skills — versatile)
+    [
+      SKILL_IDS.foh,
+      SKILL_IDS.prep,
+      SKILL_IDS.bar,
+      SKILL_IDS.saute,
+      SKILL_IDS.expo,
+    ],
+    // staff 6 - Noah:    bar, saute, grill, foh
+    [SKILL_IDS.bar, SKILL_IDS.saute, SKILL_IDS.grill, SKILL_IDS.foh],
+    // staff 7 - Ava:     grill, foh, prep, bar
+    [SKILL_IDS.grill, SKILL_IDS.foh, SKILL_IDS.prep, SKILL_IDS.bar],
+    // staff 8 - James:   prep, expo, foh, saute, grill (5 skills — versatile)
+    [
+      SKILL_IDS.prep,
+      SKILL_IDS.expo,
+      SKILL_IDS.foh,
+      SKILL_IDS.saute,
+      SKILL_IDS.grill,
+    ],
+    // staff 9 - Isabella: foh, bar, grill, expo
+    [SKILL_IDS.foh, SKILL_IDS.bar, SKILL_IDS.grill, SKILL_IDS.expo],
   ];
+  for (let i = 0; i < staffIds.length; i++) {
+    for (const skillId of staffSkillSets[i]) {
+      skillAssignments.push({ staff_id: staffIds[i], skill_id: skillId });
+    }
+  }
   await supabase
     .from('staff_skills')
     .upsert(skillAssignments, { onConflict: 'staff_id,skill_id' });
@@ -299,36 +314,44 @@ async function seed() {
   // 6. Staff location certifications
   // ============================================
   console.log('📋 Certifying staff for locations...');
-  const locationCerts = [
-    // Staff 0-2: Downtown + Folly
-    { staff_id: staffIds[0], location_id: LOCATION_IDS.downtown },
-    { staff_id: staffIds[0], location_id: LOCATION_IDS.folly },
-    { staff_id: staffIds[1], location_id: LOCATION_IDS.downtown },
-    { staff_id: staffIds[1], location_id: LOCATION_IDS.folly },
-    { staff_id: staffIds[2], location_id: LOCATION_IDS.downtown },
-    { staff_id: staffIds[2], location_id: LOCATION_IDS.folly },
-    // Staff 3-5: Harbor + Airport
-    { staff_id: staffIds[3], location_id: LOCATION_IDS.harbor },
-    { staff_id: staffIds[3], location_id: LOCATION_IDS.airport },
-    { staff_id: staffIds[4], location_id: LOCATION_IDS.harbor },
-    { staff_id: staffIds[4], location_id: LOCATION_IDS.airport },
-    { staff_id: staffIds[5], location_id: LOCATION_IDS.harbor },
-    { staff_id: staffIds[5], location_id: LOCATION_IDS.airport },
-    // Staff 6-7: Downtown + Harbor (cross-location)
-    { staff_id: staffIds[6], location_id: LOCATION_IDS.downtown },
-    { staff_id: staffIds[6], location_id: LOCATION_IDS.harbor },
-    { staff_id: staffIds[7], location_id: LOCATION_IDS.downtown },
-    { staff_id: staffIds[7], location_id: LOCATION_IDS.harbor },
-    // Staff 8-9: All locations
-    { staff_id: staffIds[8], location_id: LOCATION_IDS.downtown },
-    { staff_id: staffIds[8], location_id: LOCATION_IDS.harbor },
-    { staff_id: staffIds[8], location_id: LOCATION_IDS.folly },
-    { staff_id: staffIds[8], location_id: LOCATION_IDS.airport },
-    { staff_id: staffIds[9], location_id: LOCATION_IDS.downtown },
-    { staff_id: staffIds[9], location_id: LOCATION_IDS.harbor },
-    { staff_id: staffIds[9], location_id: LOCATION_IDS.folly },
-    { staff_id: staffIds[9], location_id: LOCATION_IDS.airport },
+  const locationCerts: { staff_id: string; location_id: string }[] = [];
+  const staffLocationSets: string[][] = [
+    // staff 0 - Marcus:    Downtown, Folly, Harbor (3 locations)
+    [LOCATION_IDS.downtown, LOCATION_IDS.folly, LOCATION_IDS.harbor],
+    // staff 1 - Sofia:     Downtown, Folly
+    [LOCATION_IDS.downtown, LOCATION_IDS.folly],
+    // staff 2 - Tyler:     Downtown, Folly, Airport (3 locations)
+    [LOCATION_IDS.downtown, LOCATION_IDS.folly, LOCATION_IDS.airport],
+    // staff 3 - Emma:      Harbor, Airport, Downtown (3 locations)
+    [LOCATION_IDS.harbor, LOCATION_IDS.airport, LOCATION_IDS.downtown],
+    // staff 4 - Liam:      Harbor, Airport
+    [LOCATION_IDS.harbor, LOCATION_IDS.airport],
+    // staff 5 - Olivia:    Harbor, Airport, Folly (3 locations)
+    [LOCATION_IDS.harbor, LOCATION_IDS.airport, LOCATION_IDS.folly],
+    // staff 6 - Noah:      Downtown, Harbor, Folly (3 locations)
+    [LOCATION_IDS.downtown, LOCATION_IDS.harbor, LOCATION_IDS.folly],
+    // staff 7 - Ava:       Downtown, Harbor, Airport (3 locations)
+    [LOCATION_IDS.downtown, LOCATION_IDS.harbor, LOCATION_IDS.airport],
+    // staff 8 - James:     All locations (float)
+    [
+      LOCATION_IDS.downtown,
+      LOCATION_IDS.harbor,
+      LOCATION_IDS.folly,
+      LOCATION_IDS.airport,
+    ],
+    // staff 9 - Isabella:  All locations (float)
+    [
+      LOCATION_IDS.downtown,
+      LOCATION_IDS.harbor,
+      LOCATION_IDS.folly,
+      LOCATION_IDS.airport,
+    ],
   ];
+  for (let i = 0; i < staffIds.length; i++) {
+    for (const locId of staffLocationSets[i]) {
+      locationCerts.push({ staff_id: staffIds[i], location_id: locId });
+    }
+  }
   await supabase
     .from('staff_locations')
     .upsert(locationCerts, { onConflict: 'staff_id,location_id' });
@@ -365,19 +388,21 @@ async function seed() {
   await supabase.from('availability').insert(availEntries);
 
   // ============================================
-  // 8. Create schedules + shifts for LAST week only
-  //    (Feb 23 – Mar 1, 2026). Current week is a clean slate.
+  // 8. Create schedules + shifts
+  //    • Last week  (Feb 23 – Mar 1): full week, published, assigned
+  //    • This week  (Mar 2 – Mar 8):  published, but only today (Mar 2)
+  //      has shifts so the rest of the week is a clean slate.
   // ============================================
   console.log('📋 Creating schedules and shifts...');
 
   const thisMonday = startOfWeek(new Date(), { weekStartsOn: 1 }); // Mar 2
   const lastMonday = addDays(thisMonday, -7); // Feb 23
-  const weeks = [lastMonday]; // only seed last week
   const locationIds = Object.values(LOCATION_IDS);
 
   const scheduleIds: Record<string, string> = {};
 
-  for (const weekStart of weeks) {
+  // Create schedules for both weeks
+  for (const weekStart of [lastMonday, thisMonday]) {
     for (const locId of locationIds) {
       const weekStr = format(weekStart, 'yyyy-MM-dd');
       const { data: schedule, error } = await supabase
@@ -403,7 +428,8 @@ async function seed() {
     }
   }
 
-  // Create shifts for each schedule
+  // Shift templates: 2 per day per location (Morning + Evening) with headcount 1
+  // This keeps total slots manageable for 10 staff
   const shiftSkills = [
     SKILL_IDS.grill,
     SKILL_IDS.foh,
@@ -414,28 +440,27 @@ async function seed() {
   ];
 
   const shiftTemplates = [
-    { startHour: 7, endHour: 15, headcount: 2, label: 'Morning' }, // 8h
-    { startHour: 11, endHour: 19, headcount: 2, label: 'Mid' }, // 8h
-    { startHour: 15, endHour: 23, headcount: 2, label: 'Evening' }, // 8h
-    { startHour: 9, endHour: 17, headcount: 1, label: 'Day' }, // 8h
+    { startHour: 7, endHour: 15, headcount: 1, label: 'Morning' }, // 8h
+    { startHour: 15, endHour: 23, headcount: 1, label: 'Evening' }, // 8h
   ];
 
   const allShiftIds: string[] = [];
 
-  for (const weekStart of weeks) {
+  // --- Helper: create shifts for a range of days within a week ---
+  async function createShiftsForDays(
+    weekStart: Date,
+    dayOffsets: number[], // e.g. [0..6] for full week, [0] for Monday only
+  ) {
     for (const locId of locationIds) {
       const weekStr = format(weekStart, 'yyyy-MM-dd');
       const scheduleId = scheduleIds[`${locId}-${weekStr}`];
       if (!scheduleId) continue;
 
-      // Create shifts for each day of the week
-      for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+      for (const dayOffset of dayOffsets) {
         const day = addDays(weekStart, dayOffset);
 
-        // 2-3 shifts per day per location
-        const numShifts = dayOffset < 5 ? 3 : 2; // fewer on weekends
-        for (let s = 0; s < numShifts; s++) {
-          const template = shiftTemplates[s % shiftTemplates.length];
+        for (let s = 0; s < shiftTemplates.length; s++) {
+          const template = shiftTemplates[s];
           const skillId = shiftSkills[(dayOffset + s) % shiftSkills.length];
 
           const startTime = setMinutes(setHours(day, template.startHour), 0);
@@ -468,6 +493,11 @@ async function seed() {
     }
   }
 
+  // Last week: full 7 days (Feb 23 – Mar 1)
+  await createShiftsForDays(lastMonday, [0, 1, 2, 3, 4, 5, 6]);
+  // This week: only today Monday Mar 2 (dayOffset 0)
+  await createShiftsForDays(thisMonday, [0]);
+
   console.log(`  Created ${allShiftIds.length} shifts`);
 
   // ============================================
@@ -492,12 +522,12 @@ async function seed() {
     staffLocationsMap.get(lc.staff_id)!.add(lc.location_id);
   }
 
-  // --- Fetch last-week shifts in chronological order ---
+  // --- Fetch ALL seeded shifts (last week + today) in chronological order ---
   const { data: currentShifts } = await supabase
     .from('shifts')
     .select('*, location:locations(*), schedule:schedules(*)')
     .gte('start_time', format(lastMonday, 'yyyy-MM-dd'))
-    .lt('start_time', format(thisMonday, 'yyyy-MM-dd'))
+    .lte('start_time', format(addDays(thisMonday, 1), 'yyyy-MM-dd'))
     .order('start_time');
 
   // --- Per-staff tracking ---
@@ -743,7 +773,7 @@ async function seed() {
     '  Downtown Bistro, Harbor View, Folly Beach Grill, Airport Express',
   );
   console.log(`\n📊 Data created:`);
-  console.log(`  ${allShiftIds.length} shifts across 2 weeks`);
+  console.log(`  ${allShiftIds.length} shifts (last week + today)`);
   console.log(`  ${assignmentCount} shift assignments`);
   console.log(`  ${staffIds.length} staff with skills & location certs`);
 }

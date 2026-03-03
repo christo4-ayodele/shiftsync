@@ -53,6 +53,10 @@ import {
   MapPin,
   Star,
   ChevronDown,
+  DollarSign,
+  ArrowRight,
+  TrendingUp,
+  RefreshCw,
 } from 'lucide-react';
 import {
   format,
@@ -64,9 +68,15 @@ import {
 } from 'date-fns';
 import {
   formatTimeInTimezone,
+  formatInTimezone,
   getShiftDurationHours,
 } from '@/lib/utils/timezone';
-import { SKILL_COLORS } from '@/lib/utils/constants';
+import {
+  SKILL_COLORS,
+  OVERTIME_LIMIT_HOURS,
+  BASE_HOURLY_RATE,
+  OVERTIME_MULTIPLIER,
+} from '@/lib/utils/constants';
 import type {
   ConstraintViolation,
   CoverageCandidate,
@@ -91,6 +101,7 @@ export default function ShiftsPage() {
   const [overrideReasons, setOverrideReasons] = useState<
     Record<string, string>
   >({});
+  const [staleWarning, setStaleWarning] = useState(false);
 
   const supabase = createClient();
 
@@ -159,6 +170,49 @@ export default function ShiftsPage() {
     fetchShifts();
   }, [fetchShifts]);
 
+  // Realtime subscription: auto-refresh when another manager assigns/unassigns
+  useEffect(() => {
+    if (!selectedLocation) return;
+
+    const channel = supabase
+      .channel('shift-assignments-live')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'shift_assignments' },
+        (payload) => {
+          // Refresh the shift list so headcounts update immediately
+          fetchShifts();
+
+          // If the assign dialog is open, mark candidates as stale
+          if (showAssignDialog) {
+            setStaleWarning(true);
+            // Auto-refresh candidates for the selected shift
+            if (selectedShift) {
+              findCoverageCandidates(selectedShift.id).then((refreshed) => {
+                setCandidates(refreshed);
+                // Clear stale warning after refresh completes
+                setTimeout(() => setStaleWarning(false), 3000);
+              });
+            }
+            const action =
+              payload.eventType === 'INSERT'
+                ? 'assigned to'
+                : payload.eventType === 'DELETE'
+                  ? 'unassigned from'
+                  : 'updated on';
+            toast.info(`Another manager just ${action} a shift`, {
+              description: 'Candidate list has been refreshed.',
+            });
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedLocation, showAssignDialog, selectedShift]);
+
   const location = locations.find((l) => l.id === selectedLocation);
   const timezone = location?.timezone || 'America/New_York';
 
@@ -175,6 +229,7 @@ export default function ShiftsPage() {
     setShowAssignDialog(true);
     setCandidates([]);
     setOverrideReasons({}); // Clear all override reasons
+    setStaleWarning(false);
 
     // Fetch coverage candidates
     const result = await findCoverageCandidates(shift.id);
@@ -199,6 +254,11 @@ export default function ShiftsPage() {
         toast.error(result.violations.map((v) => v.message).join('\n'));
       } else {
         toast.error(result.message || 'Failed to assign staff');
+      }
+      // Refetch candidates so the list reflects current state
+      if (selectedShift) {
+        const refreshed = await findCoverageCandidates(selectedShift.id);
+        setCandidates(refreshed);
       }
       return;
     }
@@ -309,7 +369,7 @@ export default function ShiftsPage() {
                     <div className="space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold">
-                          {format(parseISO(shift.start_time), 'EEE, MMM d')}
+                          {formatInTimezone(shift.start_time, timezone, 'EEE, MMM d')}
                         </span>
                         <span className="text-muted-foreground">
                           {formatTimeInTimezone(shift.start_time, timezone)} -{' '}
@@ -387,7 +447,7 @@ export default function ShiftsPage() {
             <DialogDescription>
               {selectedShift && (
                 <span>
-                  {format(parseISO(selectedShift.start_time), 'EEE, MMM d')} •{' '}
+                  {formatInTimezone(selectedShift.start_time, timezone, 'EEE, MMM d')} •{' '}
                   {formatTimeInTimezone(selectedShift.start_time, timezone)} -{' '}
                   {formatTimeInTimezone(selectedShift.end_time, timezone)} •{' '}
                   {selectedShift.required_skill?.name}
@@ -396,14 +456,41 @@ export default function ShiftsPage() {
             </DialogDescription>
           </DialogHeader>
 
+          {/* Stale data warning banner */}
+          {staleWarning && (
+            <Alert className="border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950">
+              <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
+              <AlertDescription className="text-blue-700 dark:text-blue-400 text-xs">
+                Another manager just made a change — refreshing candidates...
+              </AlertDescription>
+            </Alert>
+          )}
+
           <ScrollArea className="max-h-[400px]">
             {candidates.length === 0 ? (
               <div className="py-8 text-center text-muted-foreground">
                 Loading candidates...
               </div>
-            ) : (
-              <div className="space-y-2">
-                {candidates.map((candidate) => {
+            ) : (() => {
+              const eligible = candidates.filter((c) => {
+                const hardErrors = c.violations.filter(
+                  (v) => v.severity === 'error' && !isConsecutiveDaysViolation(v),
+                );
+                return hardErrors.length === 0;
+              });
+              const ineligible = candidates.filter((c) => {
+                const hardErrors = c.violations.filter(
+                  (v) => v.severity === 'error' && !isConsecutiveDaysViolation(v),
+                );
+                return hardErrors.length > 0;
+              });
+
+              // Compute shift duration for what-if preview
+              const shiftDuration = selectedShift
+                ? getShiftDurationHours(selectedShift.start_time, selectedShift.end_time)
+                : 0;
+
+              const renderCandidate = (candidate: CoverageCandidate) => {
                   const errors = candidate.violations.filter(
                     (v) => v.severity === 'error',
                   );
@@ -432,6 +519,14 @@ export default function ShiftsPage() {
                   const canAssign =
                     isEligible &&
                     (!hasConsecutiveViolation || hasValidOverride);
+
+                  // What-if overtime preview
+                  const projectedHours = candidate.weekly_hours + shiftDuration;
+                  const currentOTHours = Math.max(0, candidate.weekly_hours - OVERTIME_LIMIT_HOURS);
+                  const projectedOTHours = Math.max(0, projectedHours - OVERTIME_LIMIT_HOURS);
+                  const newOTHours = projectedOTHours - currentOTHours;
+                  const otCost = newOTHours > 0 ? newOTHours * BASE_HOURLY_RATE * OVERTIME_MULTIPLIER : 0;
+                  const willExceedOT = projectedHours > OVERTIME_LIMIT_HOURS;
 
                   return (
                     <div
@@ -489,6 +584,31 @@ export default function ShiftsPage() {
                               ? 'Assign (Override)'
                               : 'Assign'}
                         </Button>
+                      </div>
+
+                      {/* What-if overtime preview */}
+                      <div className={`flex items-center gap-2 text-xs px-2 py-1.5 rounded ${
+                        willExceedOT
+                          ? 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400'
+                          : 'bg-muted text-muted-foreground'
+                      }`}>
+                        <TrendingUp className="h-3 w-3 shrink-0" />
+                        <span>
+                          {candidate.weekly_hours.toFixed(1)}h
+                        </span>
+                        <ArrowRight className="h-3 w-3" />
+                        <span className={willExceedOT ? 'font-semibold' : ''}>
+                          {projectedHours.toFixed(1)}h
+                        </span>
+                        <span className="text-[10px]">
+                          / {OVERTIME_LIMIT_HOURS}h
+                        </span>
+                        {willExceedOT && (
+                          <Badge variant="destructive" className="text-[10px] ml-auto">
+                            <DollarSign className="h-2.5 w-2.5 mr-0.5" />
+                            +${otCost.toFixed(0)} OT
+                          </Badge>
+                        )}
                       </div>
 
                       {/* Violations */}
@@ -558,9 +678,44 @@ export default function ShiftsPage() {
                       )}
                     </div>
                   );
-                })}
-              </div>
-            )}
+              };
+
+              return (
+                <div className="space-y-3">
+                  {/* Eligible candidates */}
+                  {eligible.length > 0 ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-medium text-green-700 dark:text-green-400">
+                        <CheckCircle2 className="h-4 w-4" />
+                        Eligible ({eligible.length})
+                      </div>
+                      {eligible.map(renderCandidate)}
+                    </div>
+                  ) : (
+                    <Alert>
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertDescription>
+                        No eligible candidates found. All staff have constraint violations for this shift.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {/* Ineligible candidates */}
+                  {ineligible.length > 0 && (
+                    <>
+                      <Separator />
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                          <X className="h-4 w-4" />
+                          Unavailable ({ineligible.length})
+                        </div>
+                        {ineligible.map(renderCandidate)}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
           </ScrollArea>
         </DialogContent>
       </Dialog>

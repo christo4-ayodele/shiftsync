@@ -24,7 +24,7 @@ import {
   User2,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
-import { formatTimeInTimezone } from '@/lib/utils/timezone';
+import { formatTimeInTimezone, formatInTimezone } from '@/lib/utils/timezone';
 import { toast } from 'sonner';
 
 const STATUS_BADGE: Record<string, string> = {
@@ -136,7 +136,7 @@ export default function SwapRequestsPage() {
                 </div>
                 {shift && (
                   <p className="text-sm text-muted-foreground">
-                    {format(parseISO(shift.start_time), 'EEE, MMM d')} •{' '}
+                    {formatInTimezone(shift.start_time, tz, 'EEE, MMM d')} •{' '}
                     {formatTimeInTimezone(shift.start_time, tz)} -{' '}
                     {formatTimeInTimezone(shift.end_time, tz)} •{' '}
                     {location?.name}

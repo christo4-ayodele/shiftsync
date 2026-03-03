@@ -80,9 +80,9 @@ export default function LoginPage() {
 
         <div className="mt-6 text-xs text-muted-foreground border-t pt-4 space-y-1">
           <p className="font-medium">Demo Accounts:</p>
-          <p>Admin: admin@coastaleats.com</p>
-          <p>Manager: sarah.manager@coastaleats.com</p>
-          <p>Staff: james.staff@coastaleats.com</p>
+          <p>Admin: admin@coastaleats.dev</p>
+          <p>Manager: manager.west@coastaleats.dev</p>
+          <p>Staff: staff.kelvin@coastaleats.dev</p>
           <p className="text-muted-foreground/70">
             Password for all:password123
           </p>

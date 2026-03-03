@@ -36,6 +36,8 @@ import {
   Users,
   ChevronLeft,
   ChevronRight,
+  DollarSign,
+  ChevronDown,
 } from 'lucide-react';
 import {
   format,
@@ -46,8 +48,24 @@ import {
   parseISO,
   differenceInHours,
 } from 'date-fns';
-import { OVERTIME_THRESHOLDS } from '@/lib/utils/constants';
+import {
+  OVERTIME_THRESHOLDS,
+  BASE_HOURLY_RATE,
+  OVERTIME_MULTIPLIER,
+} from '@/lib/utils/constants';
+import { formatInTimezone } from '@/lib/utils/timezone';
 import type { Location } from '@/lib/types/database';
+
+type ShiftDetail = {
+  id: string;
+  start_time: string;
+  end_time: string;
+  hours: number;
+  location_name: string;
+  timezone: string;
+  is_ot: boolean;
+  ot_hours: number;
+};
 
 type StaffHours = {
   id: string;
@@ -58,6 +76,9 @@ type StaffHours = {
   consecutive_days: number;
   has_warning: boolean;
   has_violation: boolean;
+  ot_hours: number;
+  ot_cost: number;
+  shifts: ShiftDetail[];
 };
 
 export default function OvertimePage() {
@@ -70,6 +91,7 @@ export default function OvertimePage() {
   );
   const [staffHours, setStaffHours] = useState<StaffHours[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedStaff, setExpandedStaff] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     async function fetchLocations() {
@@ -118,7 +140,10 @@ export default function OvertimePage() {
     const { data: assignments } = await query;
 
     // Group by staff
+    // First pass: collect shifts per staff, sorted by start time
     const staffMap = new Map<string, StaffHours>();
+    const staffShifts = new Map<string, { shift: any; hours: number }[]>();
+
     for (const a of assignments || []) {
       if (!a.shift || !a.profile) continue;
       if (
@@ -138,15 +163,60 @@ export default function OvertimePage() {
           consecutive_days: 0,
           has_warning: false,
           has_violation: false,
+          ot_hours: 0,
+          ot_cost: 0,
+          shifts: [],
         });
+        staffShifts.set(id, []);
       }
-      const entry = staffMap.get(id)!;
       const hours = differenceInHours(
         parseISO(a.shift.end_time),
         parseISO(a.shift.start_time),
       );
-      entry.weekly_hours += hours;
-      entry.shifts_count += 1;
+      staffShifts.get(id)!.push({ shift: a.shift, hours });
+    }
+
+    // Second pass: sort shifts by start time and compute per-shift OT
+    for (const [id, entry] of staffMap) {
+      const shifts = (staffShifts.get(id) || []).sort(
+        (a, b) =>
+          parseISO(a.shift.start_time).getTime() -
+          parseISO(b.shift.start_time).getTime(),
+      );
+      let runningHours = 0;
+      const shiftDetails: ShiftDetail[] = [];
+      for (const { shift, hours } of shifts) {
+        const prevRunning = runningHours;
+        runningHours += hours;
+        // How many OT hours does THIS shift contribute?
+        const otBefore = Math.max(
+          0,
+          prevRunning - OVERTIME_THRESHOLDS.WEEKLY_LIMIT_HOURS,
+        );
+        const otAfter = Math.max(
+          0,
+          runningHours - OVERTIME_THRESHOLDS.WEEKLY_LIMIT_HOURS,
+        );
+        const shiftOT = otAfter - otBefore;
+        shiftDetails.push({
+          id: shift.id,
+          start_time: shift.start_time,
+          end_time: shift.end_time,
+          hours,
+          location_name: shift.location?.name || '',
+          timezone: shift.location?.timezone || 'America/New_York',
+          is_ot: shiftOT > 0,
+          ot_hours: Math.max(0, shiftOT),
+        });
+      }
+      entry.weekly_hours = runningHours;
+      entry.shifts_count = shifts.length;
+      entry.ot_hours = Math.max(
+        0,
+        runningHours - OVERTIME_THRESHOLDS.WEEKLY_LIMIT_HOURS,
+      );
+      entry.ot_cost = entry.ot_hours * BASE_HOURLY_RATE * OVERTIME_MULTIPLIER;
+      entry.shifts = shiftDetails;
     }
 
     // Calculate warnings and violations
@@ -166,10 +236,21 @@ export default function OvertimePage() {
   }, [fetchHours]);
 
   const totalHours = staffHours.reduce((sum, s) => sum + s.weekly_hours, 0);
+  const totalOTHours = staffHours.reduce((sum, s) => sum + s.ot_hours, 0);
+  const totalOTCost = staffHours.reduce((sum, s) => sum + s.ot_cost, 0);
   const warningCount = staffHours.filter(
     (s) => s.has_warning && !s.has_violation,
   ).length;
   const violationCount = staffHours.filter((s) => s.has_violation).length;
+
+  function toggleExpand(id: string) {
+    setExpandedStaff((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   if (user?.role === 'staff') {
     return (
@@ -266,6 +347,29 @@ export default function OvertimePage() {
         </Card>
       </div>
 
+      {/* OT Cost Summary */}
+      {totalOTHours > 0 && (
+        <Card className="border-red-200 dark:border-red-900">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <DollarSign className="h-5 w-5 text-red-500" />
+                <div>
+                  <p className="text-sm font-medium">Estimated Overtime Cost</p>
+                  <p className="text-xs text-muted-foreground">
+                    {totalOTHours.toFixed(1)} OT hours × ${BASE_HOURLY_RATE} ×{' '}
+                    {OVERTIME_MULTIPLIER}x
+                  </p>
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-red-600">
+                ${totalOTCost.toFixed(0)}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Staff Hours Table */}
       {loading ? (
         <div className="space-y-2">
@@ -285,9 +389,11 @@ export default function OvertimePage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead></TableHead>
                   <TableHead>Staff Member</TableHead>
                   <TableHead>Shifts</TableHead>
                   <TableHead>Weekly Hours</TableHead>
+                  <TableHead>OT Cost</TableHead>
                   <TableHead>Progress</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
@@ -299,55 +405,147 @@ export default function OvertimePage() {
                     (s.weekly_hours / OVERTIME_THRESHOLDS.WEEKLY_LIMIT_HOURS) *
                       100,
                   );
+                  const isExpanded = expandedStaff.has(s.id);
                   return (
-                    <TableRow key={s.id}>
-                      <TableCell className="font-medium">{s.name}</TableCell>
-                      <TableCell>{s.shifts_count}</TableCell>
-                      <TableCell>
-                        <span
-                          className={
-                            s.has_violation
-                              ? 'text-red-600 font-bold'
-                              : s.has_warning
-                                ? 'text-orange-600 font-semibold'
-                                : ''
-                          }
-                        >
-                          {s.weekly_hours.toFixed(1)}h
-                        </span>
-                        <span className="text-muted-foreground text-xs">
-                          {' '}
-                          / {OVERTIME_THRESHOLDS.WEEKLY_LIMIT_HOURS}h
-                        </span>
-                      </TableCell>
-                      <TableCell className="w-[150px]">
-                        <Progress
-                          value={pct}
-                          className={`h-2 ${s.has_violation ? '[&>div]:bg-red-500' : s.has_warning ? '[&>div]:bg-orange-500' : '[&>div]:bg-green-500'}`}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        {s.has_violation ? (
-                          <Badge variant="destructive" className="text-[10px]">
-                            Over Limit
-                          </Badge>
-                        ) : s.has_warning ? (
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] text-orange-600 border-orange-300"
+                    <>
+                      <TableRow
+                        key={s.id}
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => toggleExpand(s.id)}
+                      >
+                        <TableCell className="w-8 pr-0">
+                          <ChevronDown
+                            className={`h-4 w-4 text-muted-foreground transition-transform ${isExpanded ? 'rotate-0' : '-rotate-90'}`}
+                          />
+                        </TableCell>
+                        <TableCell className="font-medium">{s.name}</TableCell>
+                        <TableCell>{s.shifts_count}</TableCell>
+                        <TableCell>
+                          <span
+                            className={
+                              s.has_violation
+                                ? 'text-red-600 font-bold'
+                                : s.has_warning
+                                  ? 'text-orange-600 font-semibold'
+                                  : ''
+                            }
                           >
-                            Warning
-                          </Badge>
-                        ) : (
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] text-green-600 border-green-300"
-                          >
-                            OK
-                          </Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
+                            {s.weekly_hours.toFixed(1)}h
+                          </span>
+                          <span className="text-muted-foreground text-xs">
+                            {' '}
+                            / {OVERTIME_THRESHOLDS.WEEKLY_LIMIT_HOURS}h
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          {s.ot_cost > 0 ? (
+                            <span className="text-red-600 font-semibold text-sm">
+                              ${s.ot_cost.toFixed(0)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">
+                              —
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="w-[150px]">
+                          <Progress
+                            value={pct}
+                            className={`h-2 ${s.has_violation ? '[&>div]:bg-red-500' : s.has_warning ? '[&>div]:bg-orange-500' : '[&>div]:bg-green-500'}`}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {s.has_violation ? (
+                            <Badge
+                              variant="destructive"
+                              className="text-[10px]"
+                            >
+                              Over Limit
+                            </Badge>
+                          ) : s.has_warning ? (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] text-orange-600 border-orange-300"
+                            >
+                              Warning
+                            </Badge>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] text-green-600 border-green-300"
+                            >
+                              OK
+                            </Badge>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                      {isExpanded && s.shifts.length > 0 && (
+                        <TableRow key={`${s.id}-detail`}>
+                          <TableCell colSpan={7} className="p-0">
+                            <div className="bg-muted/30 px-6 py-2">
+                              <p className="text-xs font-medium text-muted-foreground mb-1">
+                                Shift Breakdown
+                              </p>
+                              <div className="space-y-1">
+                                {s.shifts.map((sh) => (
+                                  <div
+                                    key={sh.id}
+                                    className={`flex items-center justify-between text-xs px-2 py-1 rounded ${
+                                      sh.is_ot
+                                        ? 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400'
+                                        : ''
+                                    }`}
+                                  >
+                                    <span>
+                                      {formatInTimezone(
+                                        sh.start_time,
+                                        sh.timezone,
+                                        'EEE, MMM d',
+                                      )}{' '}
+                                      •{' '}
+                                      {formatInTimezone(
+                                        sh.start_time,
+                                        sh.timezone,
+                                        'h:mm a',
+                                      )}{' '}
+                                      –{' '}
+                                      {formatInTimezone(
+                                        sh.end_time,
+                                        sh.timezone,
+                                        'h:mm a',
+                                      )}
+                                      {sh.location_name && (
+                                        <span className="text-muted-foreground">
+                                          {' '}
+                                          • {sh.location_name}
+                                        </span>
+                                      )}
+                                    </span>
+                                    <span className="flex items-center gap-2">
+                                      <span>{sh.hours}h</span>
+                                      {sh.is_ot && (
+                                        <Badge
+                                          variant="destructive"
+                                          className="text-[10px]"
+                                        >
+                                          +{sh.ot_hours.toFixed(1)}h OT ($
+                                          {(
+                                            sh.ot_hours *
+                                            BASE_HOURLY_RATE *
+                                            OVERTIME_MULTIPLIER
+                                          ).toFixed(0)}
+                                          )
+                                        </Badge>
+                                      )}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </>
                   );
                 })}
               </TableBody>

@@ -206,13 +206,13 @@ export default function SchedulePage() {
   const location = locations.find((l) => l.id === selectedLocation);
   const timezone = location?.timezone || 'America/New_York';
 
-  // Group shifts by day
+  // Group shifts by day (in the location's timezone, not browser-local)
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(currentWeek, i));
   const shiftsByDay: Record<string, any[]> = {};
   weekDays.forEach((day) => {
     const dayStr = format(day, 'yyyy-MM-dd');
     shiftsByDay[dayStr] = shifts.filter((s) => {
-      const shiftDate = format(parseISO(s.start_time), 'yyyy-MM-dd');
+      const shiftDate = formatInTimezone(s.start_time, timezone, 'yyyy-MM-dd');
       return shiftDate === dayStr;
     });
   });

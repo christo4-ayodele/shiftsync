@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "seed:e2e": "tsx src/lib/seed/e2e-seed.ts"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.20",

@@ -128,6 +128,53 @@ export function isTimeInAvailability(
 }
 
 /**
+ * Check if an entire shift interval is FULLY contained within an availability window.
+ *
+ * Both shiftStart and shiftEnd are UTC Date objects.
+ * availStartHHMM / availEndHHMM are local-time strings ("HH:MM").
+ * Timezone is the location timezone used to convert the shift into local time.
+ *
+ * Rules:
+ *  - Convert shift start/end to the location timezone.
+ *  - Build availability start/end as Date-like minute offsets on the same local date
+ *    as shiftStart.
+ *  - If availEnd <= availStart, treat availability as spanning midnight (add 24h).
+ *  - If shiftEnd <= shiftStart (in local minutes), treat shift as overnight (add 24h).
+ *  - Return true only if  shiftStart >= availStart  AND  shiftEnd <= availEnd.
+ */
+export function isShiftFullyWithinAvailability(
+  shiftStartUTC: Date,
+  shiftEndUTC: Date,
+  availStartHHMM: string, // "HH:MM"
+  availEndHHMM: string, // "HH:MM"
+  timezone: string,
+): boolean {
+  // Convert to local time
+  const localStart = toZonedTime(shiftStartUTC, timezone);
+  const localEnd = toZonedTime(shiftEndUTC, timezone);
+
+  const shiftStartMin = localStart.getHours() * 60 + localStart.getMinutes();
+  let shiftEndMin = localEnd.getHours() * 60 + localEnd.getMinutes();
+
+  // Overnight shift: end is next day
+  if (shiftEndMin <= shiftStartMin) {
+    shiftEndMin += 24 * 60;
+  }
+
+  const [aStartH, aStartM] = availStartHHMM.split(':').map(Number);
+  const [aEndH, aEndM] = availEndHHMM.split(':').map(Number);
+  const availStartMin = aStartH * 60 + aStartM;
+  let availEndMin = aEndH * 60 + aEndM;
+
+  // Overnight availability: end is next day
+  if (availEndMin <= availStartMin) {
+    availEndMin += 24 * 60;
+  }
+
+  return shiftStartMin >= availStartMin && shiftEndMin <= availEndMin;
+}
+
+/**
  * Get the day of week for a UTC time in a specific timezone (0=Sunday)
  */
 export function getDayOfWeekInTimezone(

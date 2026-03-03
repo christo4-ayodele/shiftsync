@@ -15,11 +15,13 @@ import {
   DAILY_WARNING_HOURS,
   CONSECUTIVE_DAY_WARNING,
   CONSECUTIVE_DAY_BLOCK,
+  DEFAULT_EDIT_CUTOFF_HOURS,
 } from '@/lib/utils/constants';
 import {
   doShiftsOverlap,
   getShiftDurationHours,
   getGapBetweenShifts,
+  isShiftFullyWithinAvailability,
 } from '@/lib/utils/timezone';
 import {
   parseISO,
@@ -28,6 +30,7 @@ import {
   format,
   eachDayOfInterval,
   isSameDay,
+  differenceInHours,
 } from 'date-fns';
 
 export async function getShifts(scheduleId: string) {
@@ -150,9 +153,23 @@ export async function updateShift(
   // Get before state
   const { data: before } = await supabase
     .from('shifts')
-    .select('*')
+    .select('*, schedule:schedules(*)')
     .eq('id', shiftId)
     .single();
+
+  // Enforce edit cutoff: block edits if shift starts within cutoff window
+  if (before) {
+    const schedule = before.schedule as any;
+    const cutoffHours =
+      schedule?.edit_cutoff_hours ?? DEFAULT_EDIT_CUTOFF_HOURS;
+    const shiftStart = parseISO(before.start_time);
+    const hoursUntilShift = differenceInHours(shiftStart, new Date());
+    if (hoursUntilShift < cutoffHours && schedule?.status === 'published') {
+      throw new Error(
+        `Cannot edit shift: it starts in ${hoursUntilShift}h, which is within the ${cutoffHours}h edit cutoff for published schedules.`,
+      );
+    }
+  }
 
   const { data: shift, error } = await supabase
     .from('shifts')
@@ -327,9 +344,11 @@ export async function checkConstraints(
     });
   }
 
-  // 3. Check availability
+  // 3. Check availability (day-of-week + time-range)
   const shiftStart = parseISO(shift.start_time);
-  const dayOfWeek = shiftStart.getDay();
+  const shiftEnd = parseISO(shift.end_time);
+  // Convert JS day (0=Sun) to DB/UI day (0=Mon, 6=Sun)
+  const dayOfWeek = (shiftStart.getDay() + 6) % 7;
 
   const { data: availabilities } = await supabase
     .from('availability')
@@ -351,6 +370,36 @@ export async function checkConstraints(
         message: 'Staff member has marked this date as unavailable.',
         details: { date: shiftDate },
       });
+    } else {
+      // Exception allows this date — verify entire shift fits within time window
+      const availableExceptions = exceptions.filter((e) => e.is_available);
+      const fitsTimeWindow = availableExceptions.some((avail) => {
+        const tz = avail.timezone || shift.location?.timezone || 'UTC';
+        return isShiftFullyWithinAvailability(
+          shiftStart,
+          shiftEnd,
+          avail.start_time,
+          avail.end_time,
+          tz,
+        );
+      });
+      if (!fitsTimeWindow) {
+        const windows = availableExceptions
+          .map((a) => `${a.start_time}–${a.end_time}`)
+          .join(', ');
+        violations.push({
+          type: 'not_available',
+          severity: 'error',
+          message: `Shift time falls outside the staff member's available window (${windows}) on ${shiftDate}.`,
+          details: {
+            date: shiftDate,
+            available_windows: availableExceptions.map((a) => ({
+              start: a.start_time,
+              end: a.end_time,
+            })),
+          },
+        });
+      }
     }
   } else {
     // Check recurring availability
@@ -365,6 +414,35 @@ export async function checkConstraints(
         message: `Staff member has no availability set for ${format(shiftStart, 'EEEE')}.`,
         details: { day: format(shiftStart, 'EEEE') },
       });
+    } else {
+      // Has day availability — verify entire shift fits within time window
+      const fitsTimeWindow = recurring.some((avail) => {
+        const tz = avail.timezone || shift.location?.timezone || 'UTC';
+        return isShiftFullyWithinAvailability(
+          shiftStart,
+          shiftEnd,
+          avail.start_time,
+          avail.end_time,
+          tz,
+        );
+      });
+      if (!fitsTimeWindow) {
+        const windows = recurring
+          .map((a) => `${a.start_time}–${a.end_time}`)
+          .join(', ');
+        violations.push({
+          type: 'not_available',
+          severity: 'error',
+          message: `Shift time falls outside the staff member's available window (${windows}) on ${format(shiftStart, 'EEEE')}s.`,
+          details: {
+            day: format(shiftStart, 'EEEE'),
+            available_windows: recurring.map((a) => ({
+              start: a.start_time,
+              end: a.end_time,
+            })),
+          },
+        });
+      }
     }
   }
 
@@ -612,22 +690,7 @@ export async function assignStaffToShift(
     };
   }
 
-  // Check headcount
-  const { data: shift } = await supabase
-    .from('shifts')
-    .select('headcount_needed, shift_assignments(id)')
-    .eq('id', shiftId)
-    .single();
-
-  if (
-    shift &&
-    shift.shift_assignments &&
-    shift.shift_assignments.length >= shift.headcount_needed
-  ) {
-    return { success: false, message: 'This shift is already fully staffed.' };
-  }
-
-  // Create assignment
+  // Create assignment first (rely on DB constraints for atomicity)
   const { error } = await supabase.from('shift_assignments').insert({
     shift_id: shiftId,
     staff_id: staffId,
@@ -643,6 +706,33 @@ export async function assignStaffToShift(
       };
     }
     throw error;
+  }
+
+  // Atomically verify headcount AFTER insert to close the race window.
+  // If another manager inserted at the same time, one of us will exceed headcount.
+  const { data: shift } = await supabase
+    .from('shifts')
+    .select('headcount_needed, shift_assignments(id)')
+    .eq('id', shiftId)
+    .single();
+
+  if (
+    shift &&
+    shift.shift_assignments &&
+    shift.shift_assignments.filter((a: any) => a.id).length >
+      shift.headcount_needed
+  ) {
+    // Roll back our insert — we lost the race
+    await supabase
+      .from('shift_assignments')
+      .delete()
+      .eq('shift_id', shiftId)
+      .eq('staff_id', staffId);
+    return {
+      success: false,
+      message:
+        'This shift was just filled by another manager. Please refresh and try again.',
+    };
   }
 
   // Handle consecutive day override
