@@ -756,6 +756,25 @@ export async function assignStaffToShift(
     }
   }
 
+  // Fetch human-readable names for audit log
+  const [staffProfile, shiftDetails] = await Promise.all([
+    supabase.from('profiles').select('full_name').eq('id', staffId).single(),
+    supabase
+      .from('shifts')
+      .select('start_time, end_time, location:locations(name)')
+      .eq('id', shiftId)
+      .single(),
+  ]);
+  const staffName = staffProfile.data?.full_name || staffId;
+  const shiftLocation =
+    (shiftDetails.data?.location as { name: string } | null)?.name || '';
+  const shiftStart = shiftDetails.data?.start_time
+    ? format(parseISO(shiftDetails.data.start_time), 'MMM d, h:mm a')
+    : '';
+  const shiftEnd = shiftDetails.data?.end_time
+    ? format(parseISO(shiftDetails.data.end_time), 'h:mm a')
+    : '';
+
   // Notify staff
   await supabase.from('notifications').insert({
     user_id: staffId,
@@ -768,18 +787,20 @@ export async function assignStaffToShift(
   });
 
   // Audit log
+  const auditMeta: Record<string, unknown> = {
+    staff_name: staffName,
+    shift: `${shiftStart}${shiftEnd ? ` – ${shiftEnd}` : ''}${shiftLocation ? ` @ ${shiftLocation}` : ''}`,
+    ...(overrideWarnings && overrideReason
+      ? { override_reason: overrideReason }
+      : {}),
+  };
   await supabase.from('audit_log').insert({
     entity_type: 'shift_assignment',
     entity_id: shiftId,
     action: 'create',
     changed_by: user.id,
     after_state: { staff_id: staffId, shift_id: shiftId } as unknown as Json,
-    metadata: (overrideWarnings
-      ? {
-          override_reason: overrideReason,
-          warnings: JSON.parse(JSON.stringify(warnings)),
-        }
-      : undefined) as Json | undefined,
+    metadata: auditMeta as unknown as Json,
   });
 
   revalidatePath('/dashboard/schedule');
@@ -823,12 +844,26 @@ export async function unassignStaffFromShift(assignmentId: string) {
     delivery_method: 'in_app',
   });
 
+  const unassignStaffName =
+    (assignment as any).profile?.full_name || assignment.staff_id;
+  const unassignShift = (assignment as any).shift;
+  const unassignStart = unassignShift?.start_time
+    ? format(parseISO(unassignShift.start_time), 'MMM d, h:mm a')
+    : '';
+  const unassignEnd = unassignShift?.end_time
+    ? format(parseISO(unassignShift.end_time), 'h:mm a')
+    : '';
+
   await supabase.from('audit_log').insert({
     entity_type: 'shift_assignment',
     entity_id: assignmentId,
     action: 'delete',
     changed_by: user.id,
     before_state: assignment as unknown as Json,
+    metadata: {
+      staff_name: unassignStaffName,
+      shift: `${unassignStart}${unassignEnd ? ` – ${unassignEnd}` : ''}`,
+    } as unknown as Json,
   });
 
   revalidatePath('/dashboard/schedule');

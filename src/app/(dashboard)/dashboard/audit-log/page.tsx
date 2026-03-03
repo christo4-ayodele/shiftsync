@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { getAuditLogs, exportAuditLogs } from '@/lib/actions/audit';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -23,7 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Download, FileText, Search, Clock, User2, Filter } from 'lucide-react';
+import { Download, FileText, Search } from 'lucide-react';
 import { format, parseISO, subDays } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -212,16 +212,60 @@ export default function AuditLogPage() {
                       {log.changed_by_profile?.full_name || 'System'}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground max-w-[300px] truncate">
-                      {log.metadata ? (
-                        <span title={JSON.stringify(log.metadata, null, 2)}>
-                          {Object.entries(log.metadata)
-                            .slice(0, 3)
-                            .map(([k, v]) => `${k}: ${v}`)
-                            .join(', ')}
-                        </span>
-                      ) : (
-                        '—'
-                      )}
+                      {(() => {
+                        const meta = log.metadata as Record<
+                          string,
+                          unknown
+                        > | null;
+                        // Prefer human-readable summary when staff_name is present
+                        if (meta?.staff_name) {
+                          const parts: string[] = [];
+                          if (meta.staff_name)
+                            parts.push(String(meta.staff_name));
+                          if (meta.shift) parts.push(String(meta.shift));
+                          if (meta.override_reason)
+                            parts.push(`override: ${meta.override_reason}`);
+                          const tooltip = JSON.stringify(meta, null, 2);
+                          return (
+                            <span title={tooltip}>{parts.join(' · ')}</span>
+                          );
+                        }
+
+                        // Fallback: show generic key-value pairs from any state
+                        const details: Record<string, unknown> =
+                          meta ||
+                          (log.after_state as Record<string, unknown>) ||
+                          (log.before_state as Record<string, unknown>) ||
+                          {};
+                        const entries = Object.entries(details).filter(
+                          ([k]) =>
+                            ![
+                              'id',
+                              'created_at',
+                              'updated_at',
+                              'assigned_at',
+                            ].includes(k),
+                        );
+                        if (entries.length === 0) return '—';
+                        const tooltip = JSON.stringify(details, null, 2);
+                        return (
+                          <span title={tooltip}>
+                            {entries
+                              .slice(0, 3)
+                              .map(([k, v]) => {
+                                if (
+                                  v === null ||
+                                  v === undefined ||
+                                  typeof v === 'object'
+                                )
+                                  return null;
+                                return `${k.replace(/_/g, ' ')}: ${v}`;
+                              })
+                              .filter(Boolean)
+                              .join(', ') || '—'}
+                          </span>
+                        );
+                      })()}
                     </TableCell>
                   </TableRow>
                 ))}
