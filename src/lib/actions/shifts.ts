@@ -845,6 +845,7 @@ export async function findCoverageCandidates(
 ): Promise<CoverageCandidate[]> {
   const supabase = await createClient();
 
+  // ── 1. Fetch shift details ──────────────────────────────────────────
   const { data: shift } = await supabase
     .from('shifts')
     .select('*, required_skill:skills(*), location:locations(*)')
@@ -853,69 +854,345 @@ export async function findCoverageCandidates(
 
   if (!shift) return [];
 
-  // Get all staff members
-  const { data: allStaff } = await supabase
-    .from('profiles')
-    .select(
-      `
-      *,
-      staff_skills(skill_id),
-      staff_locations(location_id, decertified_at)
-    `,
-    )
-    .eq('role', 'staff');
-
-  if (!allStaff) return [];
-
-  // Get already assigned staff for this shift
-  const { data: currentAssignments } = await supabase
-    .from('shift_assignments')
-    .select('staff_id')
-    .eq('shift_id', shiftId);
-
-  const assignedStaffIds = new Set(
-    currentAssignments?.map((a) => a.staff_id) || [],
+  const shiftStart = parseISO(shift.start_time);
+  const shiftEnd = parseISO(shift.end_time);
+  const shiftDate = format(shiftStart, 'yyyy-MM-dd');
+  const dayOfWeek = (shiftStart.getDay() + 6) % 7;
+  const thisShiftHours = getShiftDurationHours(
+    shift.start_time,
+    shift.end_time,
   );
+  const weekStartDate = startOfWeek(shiftStart, { weekStartsOn: 1 });
+  const weekEndDate = endOfWeek(shiftStart, { weekStartsOn: 1 });
 
+  // ── 2. Bulk-fetch all data in parallel ──────────────────────────────
+  const [staffResult, currentResult, allAssignmentsResult, allAvailResult] =
+    await Promise.all([
+      // All staff with skills & locations
+      supabase
+        .from('profiles')
+        .select(
+          `*, staff_skills(skill_id), staff_locations(location_id, decertified_at)`,
+        )
+        .eq('role', 'staff'),
+      // Already-assigned staff for this shift
+      supabase
+        .from('shift_assignments')
+        .select('staff_id')
+        .eq('shift_id', shiftId),
+      // All assignments with shift data for all staff (for overlap/gap/hours)
+      supabase
+        .from('shift_assignments')
+        .select('staff_id, status, shift:shifts(id, start_time, end_time)')
+        .eq('status', 'assigned'),
+      // All availability for all staff
+      supabase.from('availability').select('*'),
+    ]);
+
+  const allStaff = staffResult.data || [];
+  const assignedStaffIds = new Set(
+    currentResult.data?.map((a) => a.staff_id) || [],
+  );
+  const allAssignments = allAssignmentsResult.data || [];
+  const allAvailability = allAvailResult.data || [];
+
+  // ── 3. Index bulk data by staff_id for O(1) lookups ─────────────────
+  const assignmentsByStaff = new Map<string, typeof allAssignments>();
+  for (const a of allAssignments) {
+    const list = assignmentsByStaff.get(a.staff_id) || [];
+    list.push(a);
+    assignmentsByStaff.set(a.staff_id, list);
+  }
+
+  const availByStaff = new Map<string, typeof allAvailability>();
+  for (const a of allAvailability) {
+    const list = availByStaff.get(a.staff_id) || [];
+    list.push(a);
+    availByStaff.set(a.staff_id, list);
+  }
+
+  // ── 4. Evaluate each candidate in-memory (zero extra queries) ───────
   const candidates: CoverageCandidate[] = [];
 
   for (const staff of allStaff) {
     if (assignedStaffIds.has(staff.id)) continue;
 
+    const violations: ConstraintViolation[] = [];
+
+    // 4a. Skill requirement
     const hasSkill = staff.staff_skills?.some(
       (s: { skill_id: string }) => s.skill_id === shift.required_skill_id,
     );
+    if (!hasSkill) {
+      violations.push({
+        type: 'missing_skill',
+        severity: 'error',
+        message: `Staff member does not have the "${shift.required_skill?.name}" skill required for this shift.`,
+        details: { required_skill: shift.required_skill?.name },
+      });
+    }
+
+    // 4b. Location certification
     const isCertified = staff.staff_locations?.some(
       (l: { location_id: string; decertified_at: string | null }) =>
         l.location_id === shift.location_id && !l.decertified_at,
     );
+    if (!isCertified) {
+      violations.push({
+        type: 'not_certified',
+        severity: 'error',
+        message: `Staff member is not certified to work at ${shift.location?.name}.`,
+        details: { location: shift.location?.name },
+      });
+    }
 
-    const violations = await checkConstraints(staff.id, shiftId);
+    // 4c. Availability
+    const staffAvail = availByStaff.get(staff.id) || [];
+    const exceptions = staffAvail.filter(
+      (a) => a.type === 'exception' && a.specific_date === shiftDate,
+    );
 
-    // Calculate weekly hours
-    const shiftStart = parseISO(shift.start_time);
-    const weekStartDate = startOfWeek(shiftStart, { weekStartsOn: 1 });
-    const weekEndDate = endOfWeek(shiftStart, { weekStartsOn: 1 });
+    if (exceptions.length > 0) {
+      const isBlocked = exceptions.some((e) => !e.is_available);
+      if (isBlocked) {
+        violations.push({
+          type: 'not_available',
+          severity: 'error',
+          message: 'Staff member has marked this date as unavailable.',
+          details: { date: shiftDate },
+        });
+      } else {
+        const availableExceptions = exceptions.filter((e) => e.is_available);
+        const fitsTimeWindow = availableExceptions.some((avail) => {
+          const tz = avail.timezone || shift.location?.timezone || 'UTC';
+          return isShiftFullyWithinAvailability(
+            shiftStart,
+            shiftEnd,
+            avail.start_time,
+            avail.end_time,
+            tz,
+          );
+        });
+        if (!fitsTimeWindow) {
+          const windows = availableExceptions
+            .map((a) => `${a.start_time}–${a.end_time}`)
+            .join(', ');
+          violations.push({
+            type: 'not_available',
+            severity: 'error',
+            message: `Shift time falls outside the staff member's available window (${windows}) on ${shiftDate}.`,
+            details: {
+              date: shiftDate,
+              available_windows: availableExceptions.map((a) => ({
+                start: a.start_time,
+                end: a.end_time,
+              })),
+            },
+          });
+        }
+      }
+    } else {
+      const recurring = staffAvail.filter(
+        (a) => a.type === 'recurring' && a.day_of_week === dayOfWeek,
+      );
+      if (!recurring || recurring.length === 0) {
+        violations.push({
+          type: 'not_available',
+          severity: 'error',
+          message: `Staff member has no availability set for ${format(shiftStart, 'EEEE')}.`,
+          details: { day: format(shiftStart, 'EEEE') },
+        });
+      } else {
+        const fitsTimeWindow = recurring.some((avail) => {
+          const tz = avail.timezone || shift.location?.timezone || 'UTC';
+          return isShiftFullyWithinAvailability(
+            shiftStart,
+            shiftEnd,
+            avail.start_time,
+            avail.end_time,
+            tz,
+          );
+        });
+        if (!fitsTimeWindow) {
+          const windows = recurring
+            .map((a) => `${a.start_time}–${a.end_time}`)
+            .join(', ');
+          violations.push({
+            type: 'not_available',
+            severity: 'error',
+            message: `Shift time falls outside the staff member's available window (${windows}) on ${format(shiftStart, 'EEEE')}s.`,
+            details: {
+              day: format(shiftStart, 'EEEE'),
+              available_windows: recurring.map((a) => ({
+                start: a.start_time,
+                end: a.end_time,
+              })),
+            },
+          });
+        }
+      }
+    }
 
-    const { data: weekAssignments } = await supabase
-      .from('shift_assignments')
-      .select('shift:shifts(start_time, end_time)')
-      .eq('staff_id', staff.id)
-      .eq('status', 'assigned');
-
-    let weeklyHours = 0;
-    weekAssignments?.forEach((a) => {
-      const s = a.shift as unknown as {
+    // 4d. Double-booking & minimum gap
+    const staffAssignments = assignmentsByStaff.get(staff.id) || [];
+    for (const assignment of staffAssignments) {
+      const existingShift = assignment.shift as unknown as {
+        id: string;
         start_time: string;
         end_time: string;
       } | null;
-      if (s) {
-        const aStart = parseISO(s.start_time);
-        if (aStart >= weekStartDate && aStart <= weekEndDate) {
-          weeklyHours += getShiftDurationHours(s.start_time, s.end_time);
-        }
+      if (!existingShift || existingShift.id === shiftId) continue;
+
+      if (
+        doShiftsOverlap(
+          shift.start_time,
+          shift.end_time,
+          existingShift.start_time,
+          existingShift.end_time,
+        )
+      ) {
+        violations.push({
+          type: 'double_booking',
+          severity: 'error',
+          message: `Staff member is already assigned to a shift from ${existingShift.start_time} to ${existingShift.end_time} that overlaps with this shift.`,
+          details: {
+            conflicting_shift_id: existingShift.id,
+            conflicting_start: existingShift.start_time,
+            conflicting_end: existingShift.end_time,
+          },
+        });
       }
-    });
+
+      const gap1 = getGapBetweenShifts(
+        existingShift.end_time,
+        shift.start_time,
+      );
+      const gap2 = getGapBetweenShifts(
+        shift.end_time,
+        existingShift.start_time,
+      );
+      const minGap = Math.min(gap1, gap2);
+
+      if (
+        minGap < MINIMUM_GAP_HOURS &&
+        !doShiftsOverlap(
+          shift.start_time,
+          shift.end_time,
+          existingShift.start_time,
+          existingShift.end_time,
+        )
+      ) {
+        violations.push({
+          type: 'minimum_gap',
+          severity: 'error',
+          message: `Only ${minGap.toFixed(1)} hours between this shift and another (minimum ${MINIMUM_GAP_HOURS}h required).`,
+          details: {
+            gap_hours: minGap,
+            required_gap: MINIMUM_GAP_HOURS,
+            conflicting_shift_id: existingShift.id,
+          },
+        });
+      }
+    }
+
+    // 4e. Weekly overtime
+    let weeklyHours = 0;
+    const daysWorked = new Set<string>();
+    for (const a of staffAssignments) {
+      const s = a.shift as unknown as {
+        id: string;
+        start_time: string;
+        end_time: string;
+      } | null;
+      if (!s) continue;
+      const aStart = parseISO(s.start_time);
+      daysWorked.add(format(aStart, 'yyyy-MM-dd'));
+      if (aStart >= weekStartDate && aStart <= weekEndDate) {
+        weeklyHours += getShiftDurationHours(s.start_time, s.end_time);
+      }
+    }
+
+    const projectedWeeklyHours = weeklyHours + thisShiftHours;
+
+    if (projectedWeeklyHours > OVERTIME_LIMIT_HOURS) {
+      violations.push({
+        type: 'overtime_weekly',
+        severity: 'warning',
+        message: `This assignment would bring the staff member to ${projectedWeeklyHours.toFixed(1)}h this week (overtime threshold: ${OVERTIME_LIMIT_HOURS}h).`,
+        details: {
+          current_hours: weeklyHours,
+          shift_hours: thisShiftHours,
+          projected_hours: projectedWeeklyHours,
+        },
+      });
+    } else if (projectedWeeklyHours >= OVERTIME_WARNING_HOURS) {
+      violations.push({
+        type: 'overtime_weekly',
+        severity: 'warning',
+        message: `This assignment would bring the staff member to ${projectedWeeklyHours.toFixed(1)}h this week (approaching overtime at ${OVERTIME_LIMIT_HOURS}h).`,
+        details: {
+          current_hours: weeklyHours,
+          shift_hours: thisShiftHours,
+          projected_hours: projectedWeeklyHours,
+        },
+      });
+    }
+
+    // Daily hours check
+    if (thisShiftHours > DAILY_HARD_BLOCK_HOURS) {
+      violations.push({
+        type: 'overtime_daily',
+        severity: 'error',
+        message: `This shift is ${thisShiftHours.toFixed(1)}h long, exceeding the ${DAILY_HARD_BLOCK_HOURS}h daily hard limit.`,
+        details: { shift_hours: thisShiftHours, limit: DAILY_HARD_BLOCK_HOURS },
+      });
+    } else if (thisShiftHours > DAILY_WARNING_HOURS) {
+      violations.push({
+        type: 'overtime_daily',
+        severity: 'warning',
+        message: `This shift is ${thisShiftHours.toFixed(1)}h long, exceeding the ${DAILY_WARNING_HOURS}h daily recommended maximum.`,
+        details: { shift_hours: thisShiftHours, limit: DAILY_WARNING_HOURS },
+      });
+    }
+
+    // 4f. Consecutive days check
+    daysWorked.add(shiftDate);
+    let consecutiveDays = 1;
+    const checkDate = parseISO(shiftDate);
+    for (let i = 1; i <= 7; i++) {
+      const prevDate = new Date(checkDate);
+      prevDate.setDate(prevDate.getDate() - i);
+      if (daysWorked.has(format(prevDate, 'yyyy-MM-dd'))) {
+        consecutiveDays++;
+      } else {
+        break;
+      }
+    }
+    for (let i = 1; i <= 7; i++) {
+      const nextDate = new Date(checkDate);
+      nextDate.setDate(nextDate.getDate() + i);
+      if (daysWorked.has(format(nextDate, 'yyyy-MM-dd'))) {
+        consecutiveDays++;
+      } else {
+        break;
+      }
+    }
+
+    if (consecutiveDays >= CONSECUTIVE_DAY_BLOCK) {
+      violations.push({
+        type: 'consecutive_days',
+        severity: 'error',
+        message: `This would be ${consecutiveDays} consecutive days worked. 7+ consecutive days requires manager override with documented reason.`,
+        details: { consecutive_days: consecutiveDays },
+      });
+    } else if (consecutiveDays >= CONSECUTIVE_DAY_WARNING) {
+      violations.push({
+        type: 'consecutive_days',
+        severity: 'warning',
+        message: `This would be day ${consecutiveDays} in a row for this staff member.`,
+        details: { consecutive_days: consecutiveDays },
+      });
+    }
 
     candidates.push({
       profile: staff,
@@ -927,7 +1204,7 @@ export async function findCoverageCandidates(
     });
   }
 
-  // Sort: qualified & available first, then by weekly hours (fewest first)
+  // Sort: fewest errors first, then by weekly hours (fewest first)
   candidates.sort((a, b) => {
     const aErrors = a.violations.filter((v) => v.severity === 'error').length;
     const bErrors = b.violations.filter((v) => v.severity === 'error').length;
