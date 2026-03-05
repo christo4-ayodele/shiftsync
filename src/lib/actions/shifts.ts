@@ -28,8 +28,6 @@ import {
   startOfWeek,
   endOfWeek,
   format,
-  eachDayOfInterval,
-  isSameDay,
   differenceInHours,
 } from 'date-fns';
 
@@ -159,7 +157,10 @@ export async function updateShift(
 
   // Enforce edit cutoff: block edits if shift starts within cutoff window
   if (before) {
-    const schedule = before.schedule as any;
+    const schedule = before.schedule as {
+      edit_cutoff_hours?: number;
+      status?: string;
+    } | null;
     const cutoffHours =
       schedule?.edit_cutoff_hours ?? DEFAULT_EDIT_CUTOFF_HOURS;
     const shiftStart = parseISO(before.start_time);
@@ -190,7 +191,9 @@ export async function updateShift(
     const assignmentIds = assignments.map((a) => a.id);
     const { data: pendingSwaps } = await supabase
       .from('swap_requests')
-      .select('*, requesting_assignment:shift_assignments(staff_id)')
+      .select(
+        '*, requesting_assignment:shift_assignments!swap_requests_requesting_assignment_id_fkey(staff_id)',
+      )
       .in('requesting_assignment_id', assignmentIds)
       .in('status', ['pending_peer', 'pending_manager']);
 
@@ -205,7 +208,9 @@ export async function updateShift(
 
       // Notify affected staff
       for (const swap of pendingSwaps) {
-        const staffId = (swap.requesting_assignment as any)?.staff_id;
+        const staffId = (
+          swap.requesting_assignment as { staff_id: string } | null
+        )?.staff_id;
         if (staffId) {
           await supabase.from('notifications').insert({
             user_id: staffId,
@@ -524,7 +529,7 @@ export async function checkConstraints(
       return assignmentStart >= weekStartDate && assignmentStart <= weekEndDate;
     }) || [];
 
-  let weeklyHours = weeklyAssignments.reduce((sum, a) => {
+  const weeklyHours = weeklyAssignments.reduce((sum, a) => {
     if (!a.shift) return sum;
     return sum + getShiftDurationHours(a.shift.start_time, a.shift.end_time);
   }, 0);
@@ -719,7 +724,7 @@ export async function assignStaffToShift(
   if (
     shift &&
     shift.shift_assignments &&
-    shift.shift_assignments.filter((a: any) => a.id).length >
+    shift.shift_assignments.filter((a: { id: string }) => a.id).length >
       shift.headcount_needed
   ) {
     // Roll back our insert — we lost the race
@@ -845,8 +850,12 @@ export async function unassignStaffFromShift(assignmentId: string) {
   });
 
   const unassignStaffName =
-    (assignment as any).profile?.full_name || assignment.staff_id;
-  const unassignShift = (assignment as any).shift;
+    (assignment as unknown as { profile?: { full_name?: string } }).profile
+      ?.full_name || assignment.staff_id;
+  const unassignShift = assignment.shift as unknown as {
+    start_time: string;
+    end_time: string;
+  } | null;
   const unassignStart = unassignShift?.start_time
     ? format(parseISO(unassignShift.start_time), 'MMM d, h:mm a')
     : '';
@@ -1258,7 +1267,7 @@ export async function getMyShifts(startDate?: string, endDate?: string) {
   } = await supabase.auth.getUser();
   if (!user) return [];
 
-  let query = supabase
+  const query = supabase
     .from('shift_assignments')
     .select(
       `
@@ -1276,7 +1285,7 @@ export async function getMyShifts(startDate?: string, endDate?: string) {
   // Filter by date if provided
   if (startDate && endDate && data) {
     return data.filter((a) => {
-      const shift = a.shift as any;
+      const shift = a.shift as { start_time: string } | null;
       if (!shift) return false;
       return shift.start_time >= startDate && shift.start_time <= endDate;
     });

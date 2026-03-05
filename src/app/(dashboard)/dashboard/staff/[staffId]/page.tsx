@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import {
   getStaffMember,
@@ -29,7 +28,19 @@ import { Label } from '@/components/ui/label';
 import { ArrowLeft, MapPin, Star, Clock, Save } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import type { Skill, Location } from '@/lib/types/database';
+import type {
+  Skill,
+  Location,
+  Profile,
+  Availability,
+  StaffSkillWithJoins,
+  StaffLocationWithJoins,
+} from '@/lib/types/database';
+
+type StaffMember = Profile & {
+  staff_skills?: StaffSkillWithJoins[];
+  staff_locations?: StaffLocationWithJoins[];
+};
 
 const DAYS = [
   'Monday',
@@ -44,12 +55,12 @@ const DAYS = [
 export default function StaffDetailPage() {
   const params = useParams<{ staffId: string }>();
   const { user } = useCurrentUser();
-  const [member, setMember] = useState<any>(null);
+  const [member, setMember] = useState<StaffMember | null>(null);
   const [allSkills, setAllSkills] = useState<Skill[]>([]);
   const [allLocations, setAllLocations] = useState<Location[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
-  const [availability, setAvailability] = useState<any[]>([]);
+  const [availability, setAvailability] = useState<Availability[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -65,14 +76,18 @@ export default function StaffDetailPage() {
       setAllSkills(skills);
       setAllLocations(locations);
       setSelectedSkills(
-        memberData?.staff_skills?.map((ss: any) => ss.skill_id) || [],
+        memberData?.staff_skills?.map(
+          (ss: StaffSkillWithJoins) => ss.skill_id,
+        ) || [],
       );
       setSelectedLocations(
         memberData?.staff_locations
-          ?.filter((sl: any) => !sl.decertified_at)
-          .map((sl: any) => sl.location_id) || [],
+          ?.filter((sl: StaffLocationWithJoins) => !sl.decertified_at)
+          .map((sl: StaffLocationWithJoins) => sl.location_id) || [],
       );
-      setAvailability(avail.filter((a: any) => a.type === 'recurring'));
+      setAvailability(
+        avail.filter((a: Availability) => a.type === 'recurring'),
+      );
       setLoading(false);
     }
     load();
@@ -174,7 +189,7 @@ export default function StaffDetailPage() {
             <div className="space-y-2">
               {DAYS.map((day, idx) => {
                 const dayAvail = availability.filter(
-                  (a: any) => a.day_of_week === idx,
+                  (a: Availability) => a.day_of_week === idx,
                 );
                 return (
                   <div
@@ -184,7 +199,7 @@ export default function StaffDetailPage() {
                     <span className="w-24 font-medium">{day}</span>
                     {dayAvail.length > 0 ? (
                       <div className="flex gap-2">
-                        {dayAvail.map((a: any) => (
+                        {dayAvail.map((a: Availability) => (
                           <Badge key={a.id} variant="outline">
                             <Clock className="h-3 w-3 mr-1" />
                             {a.start_time?.slice(0, 5)} -{' '}

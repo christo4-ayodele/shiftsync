@@ -220,7 +220,7 @@ async function seed() {
     // Upsert profile
     await supabase.from('profiles').upsert({
       id: userId,
-      role: u.role as any,
+      role: u.role as 'admin' | 'manager' | 'staff',
       full_name: u.name,
       email: u.email,
       desired_weekly_hours: u.role === 'staff' ? 35 : null,
@@ -265,7 +265,6 @@ async function seed() {
   // ============================================
   console.log('⭐ Assigning staff skills...');
   // Each staff gets 4-5 skills so they can cover most shift types
-  const allSkillIds = Object.values(SKILL_IDS);
   const skillAssignments: { staff_id: string; skill_id: string }[] = [];
   const staffSkillSets: string[][] = [
     // staff 0 - Marcus:  grill, saute, prep, foh
@@ -365,7 +364,15 @@ async function seed() {
     await supabase.from('availability').delete().eq('staff_id', sid);
   }
 
-  const availEntries: any[] = [];
+  const availEntries: Array<{
+    staff_id: string;
+    type: string;
+    day_of_week: number;
+    start_time: string;
+    end_time: string;
+    is_available: boolean;
+    timezone: string;
+  }> = [];
   for (let i = 0; i < staffIds.length; i++) {
     // Each staff available most days with varying hours
     const morningStart = i % 2 === 0 ? '07:00' : '08:00';

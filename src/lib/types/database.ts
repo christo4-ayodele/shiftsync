@@ -108,10 +108,10 @@ export type ShiftAssignmentWithJoins = ShiftAssignment & {
 };
 
 export type SwapRequestWithJoins = SwapRequest & {
-  requesting_assignment?: ShiftAssignmentWithJoins;
-  target_staff?: Profile;
-  target_assignment?: ShiftAssignmentWithJoins;
-  manager?: Profile;
+  requesting_assignment?: ShiftAssignmentWithJoins | null;
+  target_staff?: Profile | null;
+  target_assignment?: ShiftAssignmentWithJoins | null;
+  manager?: Profile | null;
 };
 
 export type OvertimeOverrideWithJoins = OvertimeOverride & {

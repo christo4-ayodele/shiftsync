@@ -74,7 +74,8 @@ export async function exportAuditLogs(filters: {
     log.action,
     log.entity_type,
     log.entity_id,
-    (log as any).changed_by_profile?.full_name || log.changed_by,
+    (log as unknown as { changed_by_profile?: { full_name?: string } })
+      .changed_by_profile?.full_name || log.changed_by,
     JSON.stringify(log.before_state || {}),
     JSON.stringify(log.after_state || {}),
   ]);

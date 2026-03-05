@@ -17,10 +17,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   BarChart,
   Bar,
@@ -39,14 +37,11 @@ import {
 import {
   format,
   startOfWeek,
-  endOfWeek,
   subWeeks,
   parseISO,
   differenceInHours,
 } from 'date-fns';
 import {
-  ChevronLeft,
-  ChevronRight,
   BarChart3,
   PieChart as PieIcon,
   TrendingUp,
@@ -75,17 +70,27 @@ export default function AnalyticsPage() {
   const [selectedLocation, setSelectedLocation] = useState<string>('all');
   const [weeksBack, setWeeksBack] = useState(4);
   const [loading, setLoading] = useState(true);
-  const [hoursData, setHoursData] = useState<any[]>([]);
-  const [skillData, setSkillData] = useState<any[]>([]);
-  const [weeklyTrendData, setWeeklyTrendData] = useState<any[]>([]);
-  const [premiumData, setPremiumData] = useState<any[]>([]);
+  const [hoursData, setHoursData] = useState<{ name: string; hours: number }[]>(
+    [],
+  );
+  const [skillData, setSkillData] = useState<{ name: string; value: number }[]>(
+    [],
+  );
+  const [weeklyTrendData, setWeeklyTrendData] = useState<
+    { week: string; hours: number }[]
+  >([]);
+  const [premiumData, setPremiumData] = useState<
+    { name: string; premium: number; regular: number }[]
+  >([]);
   const [fairnessMetrics, setFairnessMetrics] = useState<{
     score: number;
     stddev: number;
     mean: number;
     cv: number;
   } | null>(null);
-  const [desiredVsActualData, setDesiredVsActualData] = useState<any[]>([]);
+  const [desiredVsActualData, setDesiredVsActualData] = useState<
+    { name: string; desired: number; actual: number; diff: number }[]
+  >([]);
 
   useEffect(() => {
     async function fetchLocations() {
@@ -107,7 +112,7 @@ export default function AnalyticsPage() {
       }
     }
     fetchLocations();
-  }, [user]);
+  }, [user, supabase]);
 
   const fetchAnalytics = useCallback(async () => {
     setLoading(true);
@@ -115,7 +120,7 @@ export default function AnalyticsPage() {
     const start = subWeeks(startOfWeek(now, { weekStartsOn: 1 }), weeksBack);
     const startStr = format(start, 'yyyy-MM-dd');
 
-    let query = supabase
+    const query = supabase
       .from('shift_assignments')
       .select(
         `
@@ -242,10 +247,10 @@ export default function AnalyticsPage() {
     );
 
     setLoading(false);
-  }, [selectedLocation, weeksBack]);
+  }, [selectedLocation, weeksBack, supabase]);
 
   useEffect(() => {
-    fetchAnalytics();
+    void Promise.resolve().then(() => fetchAnalytics());
   }, [fetchAnalytics]);
 
   if (user?.role === 'staff') {

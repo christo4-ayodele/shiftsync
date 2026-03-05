@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -18,7 +18,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog';
@@ -26,20 +25,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Plus,
-  Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
   Send,
-  Edit,
   Trash2,
   Users,
-  AlertTriangle,
-  Clock,
-  Check,
-  X,
 } from 'lucide-react';
 import {
   format,
@@ -48,16 +40,16 @@ import {
   addWeeks,
   subWeeks,
   addDays,
-  parseISO,
-  isWithinInterval,
 } from 'date-fns';
-import {
-  formatInTimezone,
-  formatTimeInTimezone,
-  getShiftDurationHours,
-} from '@/lib/utils/timezone';
+import { formatInTimezone, formatTimeInTimezone } from '@/lib/utils/timezone';
 import { SKILL_COLORS } from '@/lib/utils/constants';
-import type { Location, Skill, Shift, Schedule } from '@/lib/types/database';
+import type {
+  Location,
+  Skill,
+  ScheduleWithJoins,
+  ShiftWithJoins,
+  ShiftAssignmentWithJoins,
+} from '@/lib/types/database';
 import { toast } from 'sonner';
 
 export default function SchedulePage() {
@@ -68,8 +60,8 @@ export default function SchedulePage() {
     startOfWeek(new Date(), { weekStartsOn: 1 }),
   );
   const [skills, setSkills] = useState<Skill[]>([]);
-  const [shifts, setShifts] = useState<any[]>([]);
-  const [schedule, setSchedule] = useState<any>(null);
+  const [shifts, setShifts] = useState<ShiftWithJoins[]>([]);
+  const [schedule, setSchedule] = useState<ScheduleWithJoins | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreateShift, setShowCreateShift] = useState(false);
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
@@ -118,7 +110,7 @@ export default function SchedulePage() {
 
     fetchLocations();
     fetchSkills();
-  }, [user]);
+  }, [user, supabase, selectedLocation]);
 
   // Fetch schedule and shifts for selected location + week
   const fetchScheduleData = useCallback(async () => {
@@ -163,7 +155,7 @@ export default function SchedulePage() {
 
     setShifts(shiftsData || []);
     setLoading(false);
-  }, [selectedLocation, currentWeek]);
+  }, [selectedLocation, currentWeek, supabase]);
 
   useEffect(() => {
     fetchScheduleData();
@@ -201,14 +193,14 @@ export default function SchedulePage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedLocation, fetchScheduleData]);
+  }, [selectedLocation, fetchScheduleData, supabase]);
 
   const location = locations.find((l) => l.id === selectedLocation);
   const timezone = location?.timezone || 'America/New_York';
 
   // Group shifts by day (in the location's timezone, not browser-local)
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(currentWeek, i));
-  const shiftsByDay: Record<string, any[]> = {};
+  const shiftsByDay: Record<string, ShiftWithJoins[]> = {};
   weekDays.forEach((day) => {
     const dayStr = format(day, 'yyyy-MM-dd');
     shiftsByDay[dayStr] = shifts.filter((s) => {
@@ -251,7 +243,7 @@ export default function SchedulePage() {
     const startUTC = fromZonedTime(startDateTime, timezone).toISOString();
     const endUTC = fromZonedTime(endDateTime, timezone).toISOString();
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('shifts')
       .insert({
         schedule_id: schedule.id,
@@ -302,7 +294,7 @@ export default function SchedulePage() {
     // Notify assigned staff
     const staffIds = new Set<string>();
     shifts.forEach((s) => {
-      s.shift_assignments?.forEach((a: any) => {
+      s.shift_assignments?.forEach((a: ShiftAssignmentWithJoins) => {
         if (a.status === 'assigned') staffIds.add(a.staff_id);
       });
     });
@@ -482,7 +474,7 @@ export default function SchedulePage() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-2 pt-0 space-y-1">
-                  {dayShifts.map((shift: any) => (
+                  {dayShifts.map((shift: ShiftWithJoins) => (
                     <ShiftCard
                       key={shift.id}
                       shift={shift}
@@ -612,7 +604,7 @@ function ShiftCard({
   onDelete,
   isDraft,
 }: {
-  shift: any;
+  shift: ShiftWithJoins;
   timezone: string;
   onDelete: () => void;
   isDraft: boolean;
@@ -621,8 +613,9 @@ function ShiftCard({
   const skillColor =
     SKILL_COLORS[skillName.toLowerCase()] || 'bg-gray-100 text-gray-800';
   const assignedCount =
-    shift.shift_assignments?.filter((a: any) => a.status === 'assigned')
-      .length || 0;
+    shift.shift_assignments?.filter(
+      (a: ShiftAssignmentWithJoins) => a.status === 'assigned',
+    ).length || 0;
   const isFull = assignedCount >= shift.headcount_needed;
 
   return (
@@ -654,8 +647,8 @@ function ShiftCard({
         </span>
       </div>
       {shift.shift_assignments
-        ?.filter((a: any) => a.status === 'assigned')
-        .map((a: any) => (
+        ?.filter((a: ShiftAssignmentWithJoins) => a.status === 'assigned')
+        .map((a: ShiftAssignmentWithJoins) => (
           <p
             key={a.id}
             className="text-[10px] text-muted-foreground truncate pl-1"

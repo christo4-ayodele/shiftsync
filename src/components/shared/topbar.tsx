@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
-import { Bell, Menu, LogOut, Settings, User } from 'lucide-react';
+import { Bell, Menu, LogOut, Settings } from 'lucide-react';
 import Link from 'next/link';
 
 interface TopbarProps {

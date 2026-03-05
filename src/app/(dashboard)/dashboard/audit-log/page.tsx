@@ -26,6 +26,7 @@ import {
 import { Download, FileText, Search } from 'lucide-react';
 import { format, parseISO, subDays } from 'date-fns';
 import { toast } from 'sonner';
+import type { AuditLogWithJoins } from '@/lib/types/database';
 
 const ACTION_COLORS: Record<string, string> = {
   shift_created: 'bg-green-100 text-green-800',
@@ -43,7 +44,7 @@ const ACTION_COLORS: Record<string, string> = {
 
 export default function AuditLogPage() {
   const { user } = useCurrentUser();
-  const [logs, setLogs] = useState<any[]>([]);
+  const [logs, setLogs] = useState<AuditLogWithJoins[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionFilter, setActionFilter] = useState<string>('all');
   const [dateRange, setDateRange] = useState<string>('7');
@@ -65,7 +66,7 @@ export default function AuditLogPage() {
   }, [actionFilter, dateRange]);
 
   useEffect(() => {
-    fetchLogs();
+    void Promise.resolve().then(() => fetchLogs());
   }, [fetchLogs]);
 
   async function handleExport() {

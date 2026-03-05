@@ -17,11 +17,7 @@ export async function getSwapRequests(filter?: 'pending' | 'all') {
   } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
+  await supabase.from('profiles').select('role').eq('id', user.id).single();
 
   let query = supabase
     .from('swap_requests')
@@ -88,7 +84,7 @@ export async function createSwapRequest(data: {
   if (!user) throw new Error('Not authenticated');
 
   // Check pending request limit
-  const { count } = await supabase
+  await supabase
     .from('swap_requests')
     .select('*', { count: 'exact', head: true })
     .eq('requesting_assignment_id', data.requesting_assignment_id)
@@ -125,7 +121,9 @@ export async function createSwapRequest(data: {
 
   let expiresAt: string | null = null;
   if (data.type === 'drop' && assignment?.shift) {
-    const shiftStart = parseISO((assignment.shift as any).start_time);
+    const shiftStart = parseISO(
+      (assignment.shift as unknown as { start_time: string }).start_time,
+    );
     expiresAt = subHours(
       shiftStart,
       DROP_REQUEST_EXPIRE_HOURS_BEFORE_SHIFT,
@@ -208,7 +206,9 @@ export async function acceptSwapRequest(swapRequestId: string) {
   if (error) throw error;
 
   // Notify the requester
-  const requesterId = (request.requesting_assignment as any)?.staff_id;
+  const requesterId = (
+    request.requesting_assignment as { staff_id: string } | null
+  )?.staff_id;
   if (requesterId) {
     await supabase.from('notifications').insert({
       user_id: requesterId,
@@ -253,7 +253,11 @@ export async function approveSwapRequest(swapRequestId: string) {
     };
   }
 
-  const reqAssignment = request.requesting_assignment as any;
+  const reqAssignment = request.requesting_assignment as unknown as {
+    staff_id: string;
+    shift_id: string;
+  } | null;
+  if (!reqAssignment) throw new Error('Requesting assignment not found');
 
   if (request.type === 'swap' && request.target_staff_id) {
     // Run constraint checks on the target staff for the shift being swapped
@@ -381,7 +385,9 @@ export async function rejectSwapRequest(
     })
     .eq('id', swapRequestId);
 
-  const requesterId = (request.requesting_assignment as any)?.staff_id;
+  const requesterId = (
+    request.requesting_assignment as { staff_id: string } | null
+  )?.staff_id;
   if (requesterId) {
     await supabase.from('notifications').insert({
       user_id: requesterId,
@@ -489,7 +495,11 @@ export async function claimDroppedShift(swapRequestId: string) {
     };
   }
 
-  const shiftData = request.requesting_assignment as any;
+  const shiftData = request.requesting_assignment as unknown as {
+    staff_id: string;
+    shift_id: string;
+    shift?: { id: string; location_id?: string; start_time?: string };
+  } | null;
 
   // If the drop is already approved by a manager, directly assign the shift
   if (request.status === 'approved') {

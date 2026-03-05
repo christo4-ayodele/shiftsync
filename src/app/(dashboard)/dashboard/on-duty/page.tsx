@@ -3,13 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
   Select,
@@ -24,15 +18,19 @@ import { Clock, MapPin, Users, Wifi, Activity } from 'lucide-react';
 import { format, parseISO, isWithinInterval } from 'date-fns';
 import { formatTimeInTimezone } from '@/lib/utils/timezone';
 import { SKILL_COLORS } from '@/lib/utils/constants';
-import type { Location } from '@/lib/types/database';
+import type {
+  Location,
+  ShiftWithJoins,
+  ShiftAssignmentWithJoins,
+} from '@/lib/types/database';
 
 export default function OnDutyPage() {
   const { user } = useCurrentUser();
   const supabase = createClient();
   const [locations, setLocations] = useState<Location[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<string>('all');
-  const [onDutyShifts, setOnDutyShifts] = useState<any[]>([]);
-  const [upcomingShifts, setUpcomingShifts] = useState<any[]>([]);
+  const [onDutyShifts, setOnDutyShifts] = useState<ShiftWithJoins[]>([]);
+  const [upcomingShifts, setUpcomingShifts] = useState<ShiftWithJoins[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -55,7 +53,7 @@ export default function OnDutyPage() {
       }
     }
     fetchLocations();
-  }, [user]);
+  }, [user, supabase]);
 
   const fetchOnDuty = useCallback(async () => {
     setLoading(true);
@@ -84,8 +82,8 @@ export default function OnDutyPage() {
     const { data } = await query;
 
     const shifts = data || [];
-    const onDuty: any[] = [];
-    const upcoming: any[] = [];
+    const onDuty: ShiftWithJoins[] = [];
+    const upcoming: ShiftWithJoins[] = [];
 
     for (const shift of shifts) {
       const start = parseISO(shift.start_time);
@@ -102,10 +100,10 @@ export default function OnDutyPage() {
     setOnDutyShifts(onDuty);
     setUpcomingShifts(upcoming.slice(0, 10));
     setLoading(false);
-  }, [selectedLocation]);
+  }, [selectedLocation, supabase]);
 
   useEffect(() => {
-    fetchOnDuty();
+    void Promise.resolve().then(() => fetchOnDuty());
   }, [fetchOnDuty]);
 
   // Auto refresh every 60 seconds
@@ -129,13 +127,14 @@ export default function OnDutyPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [fetchOnDuty]);
+  }, [fetchOnDuty, supabase]);
 
   const totalOnDuty = onDutyShifts.reduce(
     (sum, s) =>
       sum +
-      (s.shift_assignments?.filter((a: any) => a.status === 'assigned')
-        .length || 0),
+      (s.shift_assignments?.filter(
+        (a: ShiftAssignmentWithJoins) => a.status === 'assigned',
+      ).length || 0),
     0,
   );
 
@@ -245,7 +244,8 @@ export default function OnDutyPage() {
                     const skillColor = SKILL_COLORS[skill.toLowerCase()] || '';
                     const assigned =
                       shift.shift_assignments?.filter(
-                        (a: any) => a.status === 'assigned',
+                        (a: ShiftAssignmentWithJoins) =>
+                          a.status === 'assigned',
                       ) || [];
 
                     return (
@@ -272,7 +272,7 @@ export default function OnDutyPage() {
                           </Badge>
                         </div>
                         <div className="flex gap-2 flex-wrap">
-                          {assigned.map((a: any) => (
+                          {assigned.map((a: ShiftAssignmentWithJoins) => (
                             <div
                               key={a.id}
                               className="flex items-center gap-1.5 bg-muted px-2 py-1 rounded text-sm"
@@ -311,7 +311,8 @@ export default function OnDutyPage() {
                     const skill = shift.required_skill?.name || 'General';
                     const assigned =
                       shift.shift_assignments?.filter(
-                        (a: any) => a.status === 'assigned',
+                        (a: ShiftAssignmentWithJoins) =>
+                          a.status === 'assigned',
                       ) || [];
 
                     return (

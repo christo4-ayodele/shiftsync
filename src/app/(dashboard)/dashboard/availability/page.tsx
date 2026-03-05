@@ -28,17 +28,11 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Calendar, Clock, Plus, Trash2, Save } from 'lucide-react';
+import { Calendar, Plus, Trash2, Save } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import type { Availability } from '@/lib/types/database';
 
 const DAYS = [
   'Monday',
@@ -54,8 +48,8 @@ type DaySlot = { start: string; end: string; available: boolean };
 
 export default function AvailabilityPage() {
   const { user } = useCurrentUser();
-  const [availability, setAvailabilityData] = useState<any[]>([]);
-  const [exceptions, setExceptions] = useState<any[]>([]);
+  const [, setAvailabilityData] = useState<Availability[]>([]);
+  const [exceptions, setExceptions] = useState<Availability[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showExceptionDialog, setShowExceptionDialog] = useState(false);
@@ -82,15 +76,17 @@ export default function AvailabilityPage() {
     async function load() {
       if (!user) return;
       const data = await getAvailability(user.id);
-      const recurring = data.filter((a: any) => a.type === 'recurring');
-      const exc = data.filter((a: any) => a.type === 'exception');
+      const recurring = data.filter(
+        (a: Availability) => a.type === 'recurring',
+      );
+      const exc = data.filter((a: Availability) => a.type === 'exception');
       setAvailabilityData(recurring);
       setExceptions(exc);
 
       // Populate weekly schedule from data
       const schedule: Record<number, DaySlot> = {};
       for (let i = 0; i < 7; i++) {
-        const dayRec = recurring.find((r: any) => r.day_of_week === i);
+        const dayRec = recurring.find((r: Availability) => r.day_of_week === i);
         if (dayRec) {
           schedule[i] = {
             start: dayRec.start_time?.slice(0, 5) || '09:00',
@@ -112,7 +108,7 @@ export default function AvailabilityPage() {
     setSaving(true);
 
     const entries = Object.entries(weeklySchedule)
-      .filter(([_, slot]) => slot.available)
+      .filter(([, slot]) => slot.available)
       .map(([day, slot]) => ({
         day_of_week: parseInt(day),
         start_time: slot.start,
@@ -144,7 +140,7 @@ export default function AvailabilityPage() {
     toast.success('Exception added');
     // Refresh
     const data = await getAvailability(user.id);
-    setExceptions(data.filter((a: any) => a.type === 'exception'));
+    setExceptions(data.filter((a: Availability) => a.type === 'exception'));
   }
 
   async function handleDeleteException(id: string) {
@@ -277,7 +273,7 @@ export default function AvailabilityPage() {
                       <Calendar className="h-4 w-4" />
                       <span className="font-medium">
                         {format(
-                          new Date(exc.specific_date),
+                          new Date(exc.specific_date!),
                           'EEE, MMM d, yyyy',
                         )}
                       </span>
@@ -293,9 +289,9 @@ export default function AvailabilityPage() {
                         {exc.end_time?.slice(0, 5)}
                       </p>
                     )}
-                    {exc.reason && (
+                    {(exc as unknown as { reason?: string }).reason && (
                       <p className="text-xs text-muted-foreground mt-1 ml-6 italic">
-                        {exc.reason}
+                        {(exc as unknown as { reason?: string }).reason}
                       </p>
                     )}
                   </div>

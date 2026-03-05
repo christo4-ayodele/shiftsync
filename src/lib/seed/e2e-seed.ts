@@ -11,7 +11,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { addDays, format, addHours } from 'date-fns';
+import { addDays, format } from 'date-fns';
 import { config } from 'dotenv';
 
 config({ path: '.env.local' });
@@ -227,7 +227,7 @@ async function getOrCreateUser(
   }
   await sb.from('profiles').upsert({
     id: userId,
-    role: role as any,
+    role: role as 'admin' | 'manager' | 'staff',
     full_name: name,
     email,
     desired_weekly_hours: desired ?? null,
@@ -292,7 +292,9 @@ async function seed() {
       u.email,
       u.name,
       u.role,
-      (u as any).desired,
+      'desired' in u
+        ? (u as unknown as { desired?: number }).desired
+        : undefined,
     );
   }
 
@@ -380,7 +382,16 @@ async function seed() {
   // Day convention: 0=Monday, 6=Sunday (matching the UI DAYS array + checkConstraints)
   console.log('📅 Setting staff availability...');
 
-  const avail: any[] = [];
+  const avail: Array<{
+    staff_id: string;
+    type: string;
+    day_of_week: number | null;
+    specific_date?: string;
+    start_time: string;
+    end_time: string;
+    is_available: boolean;
+    timezone: string;
+  }> = [];
 
   // Sarah: Mon–Fri 09:00–15:00, off Sat/Sun.
   // Thu 09:00–15:00 is key — shift 10:00–16:00 should FAIL containment

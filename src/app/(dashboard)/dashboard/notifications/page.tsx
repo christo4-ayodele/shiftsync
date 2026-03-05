@@ -7,11 +7,9 @@ import {
   markNotificationRead,
   markAllNotificationsRead,
 } from '@/lib/actions/notifications';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Bell,
   Check,
@@ -20,12 +18,13 @@ import {
   ArrowRightLeft,
   AlertTriangle,
   Info,
-  Mail,
 } from 'lucide-react';
-import { format, parseISO, formatDistanceToNow } from 'date-fns';
+import { parseISO, formatDistanceToNow } from 'date-fns';
 import { useNotificationStore } from '@/stores/notification-store';
+import type { Notification } from '@/lib/types/database';
+import type { LucideIcon } from 'lucide-react';
 
-const ICON_MAP: Record<string, any> = {
+const ICON_MAP: Record<string, LucideIcon> = {
   schedule_published: Calendar,
   shift_assigned: Calendar,
   shift_unassigned: Calendar,
@@ -39,7 +38,7 @@ const ICON_MAP: Record<string, any> = {
 
 export default function NotificationsPage() {
   const { user } = useCurrentUser();
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const { setUnreadCount } = useNotificationStore();
 

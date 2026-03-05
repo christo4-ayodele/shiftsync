@@ -95,7 +95,7 @@ export async function publishSchedule(scheduleId: string) {
       user_id: staffId,
       type: 'schedule_published',
       title: 'Schedule Published',
-      message: `The schedule for ${(schedule as any).location?.name || 'your location'} has been published.`,
+      message: `The schedule for ${(schedule as unknown as { location?: { name?: string } }).location?.name || 'your location'} has been published.`,
       link: '/dashboard/my-shifts',
       is_read: false,
       delivery_method: 'in_app' as const,
@@ -135,7 +135,8 @@ export async function unpublishSchedule(scheduleId: string) {
     .single();
 
   const cutoffHours =
-    (schedule as any)?.edit_cutoff_hours ?? DEFAULT_EDIT_CUTOFF_HOURS;
+    (schedule as unknown as { edit_cutoff_hours?: number })
+      ?.edit_cutoff_hours ?? DEFAULT_EDIT_CUTOFF_HOURS;
 
   const { data: shifts } = await supabase
     .from('shifts')

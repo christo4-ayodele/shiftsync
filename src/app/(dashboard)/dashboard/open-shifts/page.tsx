@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { createClient } from '@/lib/supabase/client';
 import { claimDroppedShift } from '@/lib/actions/swap-requests';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -15,7 +15,7 @@ import {
   Calendar,
   AlertTriangle,
 } from 'lucide-react';
-import { format, parseISO, differenceInHours } from 'date-fns';
+import { parseISO, differenceInHours } from 'date-fns';
 import {
   formatTimeInTimezone,
   formatInTimezone,
@@ -23,11 +23,12 @@ import {
 } from '@/lib/utils/timezone';
 import { SKILL_COLORS } from '@/lib/utils/constants';
 import { toast } from 'sonner';
+import type { SwapRequestWithJoins } from '@/lib/types/database';
 
 export default function OpenShiftsPage() {
   const { user } = useCurrentUser();
   const supabase = createClient();
-  const [openShifts, setOpenShifts] = useState<any[]>([]);
+  const [openShifts, setOpenShifts] = useState<SwapRequestWithJoins[]>([]);
   const [loading, setLoading] = useState(true);
   const [claiming, setClaiming] = useState<string | null>(null);
 
@@ -64,7 +65,7 @@ export default function OpenShiftsPage() {
       setLoading(false);
     }
     load();
-  }, []);
+  }, [supabase]);
 
   async function handleClaim(requestId: string) {
     if (!user) return;
@@ -108,7 +109,8 @@ export default function OpenShiftsPage() {
         <div className="space-y-2">
           {openShifts.map((req) => {
             const shift = req.requesting_assignment?.shift;
-            const location = shift?.location;
+            if (!shift) return null;
+            const location = shift.location;
             const tz = location?.timezone || 'America/New_York';
             const skill = shift?.required_skill?.name || 'General';
             const skillColor = SKILL_COLORS[skill.toLowerCase()] || '';

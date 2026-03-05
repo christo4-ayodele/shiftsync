@@ -3,7 +3,6 @@ import {
   parseISO,
   differenceInHours,
   differenceInMinutes,
-  isWithinInterval,
   areIntervalsOverlapping,
 } from 'date-fns';
 

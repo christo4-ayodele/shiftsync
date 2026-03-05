@@ -9,23 +9,16 @@ import {
   acceptSwapRequest,
   cancelSwapRequest,
 } from '@/lib/actions/swap-requests';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  ArrowRightLeft,
-  LogOut,
-  Check,
-  X,
-  Clock,
-  AlertTriangle,
-  User2,
-} from 'lucide-react';
+import { ArrowRightLeft, LogOut, Check, X, Clock, User2 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { formatTimeInTimezone, formatInTimezone } from '@/lib/utils/timezone';
 import { toast } from 'sonner';
+import type { SwapRequestWithJoins } from '@/lib/types/database';
 
 const STATUS_BADGE: Record<string, string> = {
   pending_peer: 'bg-orange-100 text-orange-800',
@@ -38,7 +31,7 @@ const STATUS_BADGE: Record<string, string> = {
 
 export default function SwapRequestsPage() {
   const { user } = useCurrentUser();
-  const [requests, setRequests] = useState<any[]>([]);
+  const [requests, setRequests] = useState<SwapRequestWithJoins[]>([]);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
 
@@ -57,7 +50,9 @@ export default function SwapRequestsPage() {
     requestId: string,
   ) {
     setActing(requestId);
-    let result: any;
+    let result:
+      | { success?: boolean; error?: string; message?: string }
+      | undefined;
     switch (action) {
       case 'approve':
         result = await approveSwapRequest(requestId);
@@ -104,7 +99,7 @@ export default function SwapRequestsPage() {
     );
   }
 
-  function renderRequest(req: any) {
+  function renderRequest(req: SwapRequestWithJoins) {
     const shift = req.requesting_assignment?.shift;
     const location = shift?.location;
     const tz = location?.timezone || 'America/New_York';

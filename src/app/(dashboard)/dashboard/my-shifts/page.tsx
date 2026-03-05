@@ -5,7 +5,7 @@ import { useCurrentUser } from '@/hooks/use-current-user';
 import { getMyShifts } from '@/lib/actions/shifts';
 import { createSwapRequest } from '@/lib/actions/swap-requests';
 import { getStaffMembers } from '@/lib/actions/staff';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -28,14 +28,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Calendar, Clock, MapPin, ArrowRightLeft, LogOut } from 'lucide-react';
-import {
-  format,
-  parseISO,
-  isBefore,
-  isAfter,
-  startOfDay,
-  addDays,
-} from 'date-fns';
+import { parseISO, isBefore, isAfter } from 'date-fns';
 import {
   formatTimeInTimezone,
   formatInTimezone,
@@ -43,18 +36,20 @@ import {
 } from '@/lib/utils/timezone';
 import { SKILL_COLORS } from '@/lib/utils/constants';
 import { toast } from 'sonner';
+import type { ShiftAssignmentWithJoins, Profile } from '@/lib/types/database';
 
 export default function MyShiftsPage() {
   const { user } = useCurrentUser();
-  const [shifts, setShifts] = useState<any[]>([]);
+  const [shifts, setShifts] = useState<ShiftAssignmentWithJoins[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSwapDialog, setShowSwapDialog] = useState(false);
   const [showDropDialog, setShowDropDialog] = useState(false);
-  const [selectedAssignment, setSelectedAssignment] = useState<any>(null);
+  const [selectedAssignment, setSelectedAssignment] =
+    useState<ShiftAssignmentWithJoins | null>(null);
   const [swapTargetId, setSwapTargetId] = useState('');
   const [swapReason, setSwapReason] = useState('');
   const [dropReason, setDropReason] = useState('');
-  const [peers, setPeers] = useState<any[]>([]);
+  const [peers, setPeers] = useState<Profile[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -68,22 +63,24 @@ export default function MyShiftsPage() {
   }, [user]);
 
   const now = new Date();
-  const upcoming = shifts.filter((s) =>
-    isAfter(parseISO(s.shift?.start_time), now),
+  const upcoming = shifts.filter(
+    (s) => s.shift && isAfter(parseISO(s.shift.start_time), now),
   );
-  const past = shifts.filter((s) =>
-    isBefore(parseISO(s.shift?.start_time), now),
+  const past = shifts.filter(
+    (s) => s.shift && isBefore(parseISO(s.shift.start_time), now),
   );
 
-  async function openSwapDialog(assignment: any) {
+  async function openSwapDialog(assignment: ShiftAssignmentWithJoins) {
     setSelectedAssignment(assignment);
     setShowSwapDialog(true);
     // Fetch peers for swap target
     const staff = await getStaffMembers(assignment.shift?.location_id);
-    setPeers(staff.filter((s: any) => s.id !== user?.id && s.role === 'staff'));
+    setPeers(
+      staff.filter((s: Profile) => s.id !== user?.id && s.role === 'staff'),
+    );
   }
 
-  function openDropDialog(assignment: any) {
+  function openDropDialog(assignment: ShiftAssignmentWithJoins) {
     setSelectedAssignment(assignment);
     setShowDropDialog(true);
   }
@@ -163,7 +160,8 @@ export default function MyShiftsPage() {
           ) : (
             upcoming.map((assignment) => {
               const shift = assignment.shift;
-              const location = shift?.location;
+              if (!shift) return null;
+              const location = shift.location;
               const tz = location?.timezone || 'America/New_York';
               const skill = shift?.required_skill?.name || 'General';
               const duration = shift
@@ -237,7 +235,8 @@ export default function MyShiftsPage() {
           ) : (
             past.slice(0, 20).map((assignment) => {
               const shift = assignment.shift;
-              const location = shift?.location;
+              if (!shift) return null;
+              const location = shift.location;
               const tz = location?.timezone || 'America/New_York';
               return (
                 <Card key={assignment.id} className="opacity-60">

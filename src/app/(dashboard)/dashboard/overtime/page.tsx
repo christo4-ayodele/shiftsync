@@ -3,13 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
   Select,
@@ -31,7 +25,6 @@ import {
 } from '@/components/ui/table';
 import {
   AlertTriangle,
-  Clock,
   TrendingUp,
   Users,
   ChevronLeft,
@@ -54,7 +47,7 @@ import {
   OVERTIME_MULTIPLIER,
 } from '@/lib/utils/constants';
 import { formatInTimezone } from '@/lib/utils/timezone';
-import type { Location } from '@/lib/types/database';
+import type { Location, Shift } from '@/lib/types/database';
 
 type ShiftDetail = {
   id: string;
@@ -113,7 +106,7 @@ export default function OvertimePage() {
       }
     }
     fetchLocations();
-  }, [user]);
+  }, [user, supabase]);
 
   const fetchHours = useCallback(async () => {
     setLoading(true);
@@ -124,7 +117,7 @@ export default function OvertimePage() {
     );
 
     // Get all shift assignments for the week
-    let query = supabase
+    const query = supabase
       .from('shift_assignments')
       .select(
         `
@@ -142,7 +135,10 @@ export default function OvertimePage() {
     // Group by staff
     // First pass: collect shifts per staff, sorted by start time
     const staffMap = new Map<string, StaffHours>();
-    const staffShifts = new Map<string, { shift: any; hours: number }[]>();
+    const staffShifts = new Map<
+      string,
+      { shift: Shift & { location?: Location | null }; hours: number }[]
+    >();
 
     for (const a of assignments || []) {
       if (!a.shift || !a.profile) continue;
@@ -229,13 +225,12 @@ export default function OvertimePage() {
     items.sort((a, b) => b.weekly_hours - a.weekly_hours);
     setStaffHours(items);
     setLoading(false);
-  }, [currentWeek, selectedLocation]);
+  }, [currentWeek, selectedLocation, supabase]);
 
   useEffect(() => {
-    fetchHours();
+    void Promise.resolve().then(() => fetchHours());
   }, [fetchHours]);
 
-  const totalHours = staffHours.reduce((sum, s) => sum + s.weekly_hours, 0);
   const totalOTHours = staffHours.reduce((sum, s) => sum + s.ot_hours, 0);
   const totalOTCost = staffHours.reduce((sum, s) => sum + s.ot_cost, 0);
   const warningCount = staffHours.filter(

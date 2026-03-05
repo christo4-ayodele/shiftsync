@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { getStaffMembers } from '@/lib/actions/staff';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -25,16 +25,25 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Search, Users, MapPin, Star, ChevronRight } from 'lucide-react';
+import { Search, MapPin, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
-import { SKILL_COLORS } from '@/lib/utils/constants';
-import type { Location } from '@/lib/types/database';
+import type {
+  Location,
+  Profile,
+  StaffSkillWithJoins,
+  StaffLocationWithJoins,
+} from '@/lib/types/database';
+
+type StaffMember = Profile & {
+  staff_skills?: StaffSkillWithJoins[];
+  staff_locations?: StaffLocationWithJoins[];
+};
 
 export default function StaffPage() {
   const { user } = useCurrentUser();
   const [locations, setLocations] = useState<Location[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<string>('all');
-  const [staff, setStaff] = useState<any[]>([]);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
@@ -60,7 +69,7 @@ export default function StaffPage() {
       }
     }
     fetchLocations();
-  }, [user]);
+  }, [user, supabase]);
 
   useEffect(() => {
     async function fetchStaff() {
@@ -184,7 +193,7 @@ export default function StaffPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1 flex-wrap">
-                        {member.staff_skills?.map((ss: any) => (
+                        {member.staff_skills?.map((ss: StaffSkillWithJoins) => (
                           <Badge
                             key={ss.skill?.id}
                             variant="outline"
@@ -198,8 +207,10 @@ export default function StaffPage() {
                     <TableCell>
                       <div className="flex gap-1 flex-wrap">
                         {member.staff_locations
-                          ?.filter((sl: any) => !sl.decertified_at)
-                          .map((sl: any) => (
+                          ?.filter(
+                            (sl: StaffLocationWithJoins) => !sl.decertified_at,
+                          )
+                          .map((sl: StaffLocationWithJoins) => (
                             <Badge
                               key={sl.location?.id}
                               variant="outline"

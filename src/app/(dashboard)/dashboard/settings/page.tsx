@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { updateNotificationPreferences } from '@/lib/actions/notifications';
 import {
@@ -38,18 +38,20 @@ export default function SettingsPage() {
     overtime_warning: true,
   });
 
-  useEffect(() => {
-    if (
-      user?.notification_preferences &&
-      typeof user.notification_preferences === 'object' &&
-      !Array.isArray(user.notification_preferences)
-    ) {
-      setPreferences((prev) => ({
-        ...prev,
-        ...(user.notification_preferences as Record<string, boolean>),
-      }));
-    }
-  }, [user]);
+  const [prevNotifPrefs, setPrevNotifPrefs] = useState<unknown>(undefined);
+  const userNotifPrefs = user?.notification_preferences;
+  if (
+    userNotifPrefs !== prevNotifPrefs &&
+    userNotifPrefs &&
+    typeof userNotifPrefs === 'object' &&
+    !Array.isArray(userNotifPrefs)
+  ) {
+    setPrevNotifPrefs(userNotifPrefs);
+    setPreferences((prev) => ({
+      ...prev,
+      ...(userNotifPrefs as Record<string, boolean>),
+    }));
+  }
 
   async function handleSave() {
     if (!user) return;
